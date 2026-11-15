@@ -1,0 +1,39 @@
+# 内容安全初始词库（SAF-01）
+# 本文件为项目自建示例词表，仅用于开发与测试；正式词库由运营与合规
+# 团队在 SAF-05/SAF-06 中持续扩充，不得直接引用来源不明或版权受限的词库。
+
+version: "1"
+
+words:
+  - term: 加微信
+    category: 引流
+    severity: block
+  - term: 私下转账
+    category: 违规交易
+    severity: block
+  - term: 微信号
+    category: 引流
+    severity: review
+  - term: 微信
+    category: 引流
+    severity: review
+  - term: 包治百病
+    category: 违规宣传
+    severity: review
+  - term: 刷单返利
+    category: 违规交易
+    severity: block
+  - term: 代开发票
+    category: 违规交易
+    severity: block
+
+patterns:
+  - pattern: "(?<![0-9])1[3-9][0-9]{9}(?![0-9])"
+    category: 隐私
+    severity: review
+  - pattern: "(https?://|www\\.)[a-z0-9.-]{3,}"
+    category: 引流
+    severity: block
+
+whitelist:
+  - 官方微信

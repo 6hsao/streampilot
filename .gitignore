@@ -113,7 +113,10 @@ logs/
 tmp/
 temp/
 .cache/
-data/
+data/*
+# 词库与规则属于源码，需要入库
+!data/safety/
+!data/safety/**
 out/
 
 # 数据库与导出
