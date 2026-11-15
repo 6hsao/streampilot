@@ -32,8 +32,10 @@ StreamPilot 交付的是**AI 主播操作员**，不是「无人直播挂机工�
 - 人类负责开播决策、异常处置、合规复核与关键时刻接管；
 - 系统为每一条对外内容保留生成与审核证据，做到「这句话为什么被说出来」可回放。
 
-**适用**：品牌自播间、MCN 多间运营、持证虚拟形象创作者的常态化直播。
+**适用**：品牌自播间、持证虚拟形象创作者的常态化直播；MCN 多间运营列入 Post-1.0。
 **不适用**：多账号批量养号、跨平台自动搬运、无人值守挂机、未授权形象与声音克隆。
+
+**首发范围**：抖音单平台、单直播间；多平台与多直播间列入 Post-1.0（见 [路线图](#路线图)）。云端直接推 RTMP，本地仅做直播伴侣凭据桥接；数字人采用 Live2D。
 
 完整目标、范围与验收指标见 [docs/PLAN.md](docs/PLAN.md#1-目标与边界)。
 
@@ -125,10 +127,11 @@ flowchart TB
 | 对象存储 | 阿里云 OSS |
 | 生成模型 | 百炼 Qwen（qwen-plus / qwen-turbo / qwen-max） |
 | 语音合成 | CosyVoice（百炼，流式） |
+| 数字人渲染 | Live2D（pixi-live2d-display + Cubism Core 运行时） |
 | 语音识别 | Fun-ASR（百炼，非主链路） |
 | 内容安全 | 阿里云内容安全 + 本地 DFA 词库 + 模型兜底 |
 | 媒体管线 | FFmpeg · GStreamer |
-| 部署 | Docker Compose（单间）→ ACK（多间） · Terraform |
+| 部署 | Docker Compose（首发单间）→ ACK（Post-1.0 多间） · Terraform |
 | 观测 | OpenTelemetry · Prometheus · Grafana · 阿里云 SLS |
 | CI/CD | GitHub Actions |
 
@@ -150,6 +153,7 @@ streampilot/
 │   ├── COMPLIANCE.md
 │   ├── COST.md
 │   ├── TASKS.md
+│   ├── OPEN-SOURCE.md         # 开源复用调研与许可证兼容性
 │   └── adr/                  # 架构决策记录
 ├── services/                 # 云端服务（规划）
 │   ├── ingest-gateway/
@@ -201,6 +205,7 @@ streampilot/
 | [COMPLIANCE.md](docs/COMPLIANCE.md) | 法规映射、审核策略、上线检查表、事故 SOP |
 | [COST.md](docs/COST.md) | 成本假设、单价、档位、优化手段 |
 | [TASKS.md](docs/TASKS.md) | Issue 级任务拆分与关键路径 |
+| [OPEN-SOURCE.md](docs/OPEN-SOURCE.md) | 直播链各方向开源项目调研、能力边界、许可证兼容性与复用决策 |
 | [adr/](docs/adr/README.md) | 架构决策记录 |
 
 ## 路线图
@@ -214,7 +219,9 @@ streampilot/
 | M4 | 语音与数字人 | 首帧音频 p95 ≤ 3.5s · 音画同步 ≤ 80ms · 标识常驻 |
 | M5 | 推流与接管 | 8h 稳定 · 断流 ≤ 15s 恢复 · 接管 ≤ 3s |
 | M6 | 单间灰度 | 影子采纳率 ≥ 80% · 连续 5 场无 P0/P1 · 四类演练通过 |
-| M7 | 产品化与多间 | 3 间并行 · 故障隔离 · 复盘自动化 · 租户 1h 接入 |
+| M7 | 发布与单间运营固化 | 单间连续稳定 · 复盘自动化 · 开源治理完备 |
+
+> Post-1.0 规划（不在首发范围）：多直播间/多租户并行、第二平台接入、语音互动、3D 形象。
 
 完整验收标准见 [docs/PLAN.md](docs/PLAN.md#8-里程碑与验收标准) 与 [docs/TASKS.md](docs/TASKS.md)。
 
@@ -241,14 +248,9 @@ streampilot/
 
 ## 许可证
 
-**尚未确定。** 仓库暂不包含 `LICENSE` 文件。候选方案：
+本项目采用 **MIT License**，全文见 [LICENSE](LICENSE)。
 
-| 许可证 | 特点 | 适用倾向 |
-| --- | --- | --- |
-| MIT | 极简、宽松，允许闭源商用，仅保留版权与许可声明 | 希望最大化采用与生态扩散 |
-| Apache-2.0 | 宽松 + 明确的专利授权与商标条款，需保留 NOTICE | 希望兼顾商用友好与专利保护 |
-
-在许可证确定前，默认保留所有权利。请勿在未获授权的情况下将本项目用于商业分发。
+> 注意：仓库代码为 MIT，但**不包含**任何数字人模型、Live2D Cubism Core 运行时、字体、音色样本或平台素材。这些资产受各自授权约束，使用者需自行取得商用许可。详见 [COMPLIANCE.md](docs/COMPLIANCE.md#5-授权管理)。
 
 ---
 

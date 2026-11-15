@@ -123,17 +123,21 @@ signature = hex(hmac_sha256(secret, canonical))
 2. 形象与音色授权有效；
 3. AIGC 标识配置已启用；
 4. 内容安全服务健康；
-5. RTMP 凭据已就绪且连通性通过。
+5. RTMP 凭据已就绪且连通性通过；
+6. **云端推流许可/报备记录在有效期内**；
+7. **Live2D 模型与动作集可用，Cubism 商用许可判定已归档**。
 
 ### 4.2 `POST /v1/streams/{id}/control`
 
 ```json
 {
-  "action": "pause | resume | mute | unmute | switch_persona | say_template",
+  "action": "pause | resume | mute | unmute | switch_persona | say_template | reconnect",
   "params": {"persona_version_id": "pv_01J...", "template_id": "tpl_welcome"},
   "reason": "operator action"
 }
 ```
+
+> `reconnect` 仅由控制台或运维调用，用于云端 Streamer 重连；不会重新获取推流凭据。
 
 ### 4.3 `POST /v1/streams/{id}/takeover`
 
@@ -226,7 +230,7 @@ signature = hex(hmac_sha256(secret, canonical))
 
 ### 6.2 `POST /v1/bridge/rtmp`
 
-推流地址只在内存与加密短存中使用，**不得**写入数据库明文字段或日志。
+**仅上报凭据，不推流。** 推流地址只在内存与 KMS 密文引用中使用，**不得**写入数据库明文字段或日志，也不得回显到前端。本地桥不具备推流能力。
 
 ```json
 {

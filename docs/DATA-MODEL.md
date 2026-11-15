@@ -100,10 +100,12 @@ CREATE TABLE persona_versions (
 CREATE TABLE avatar_assets (
   id                       CHAR(26) PRIMARY KEY,
   org_id                   CHAR(26) NOT NULL,
-  type                     VARCHAR(32) NOT NULL,   -- 2d_video/live2d/3d
-  oss_key                  VARCHAR(512) NOT NULL,
+  type                     VARCHAR(32) NOT NULL,   -- live2d
+  oss_key                  VARCHAR(512) NOT NULL,  -- model3.json 等入口文件
+  manifest                 JSON NOT NULL,          -- 模型/动作/表情/贴图清单与版本
   checksum                 CHAR(64) NOT NULL,
-  license_ref              VARCHAR(255) NOT NULL,  -- 授权书编号/路径
+  license_ref              VARCHAR(255) NOT NULL,  -- 美术/模型商用授权编号或路径
+  software_license_ref     VARCHAR(255) NULL,      -- Cubism Release License 判定记录
   authorization_expires_at DATETIME(3) NOT NULL,
   status                   VARCHAR(16) NOT NULL DEFAULT 'active',
   created_at               DATETIME(3) NOT NULL,
@@ -153,6 +155,20 @@ CREATE TABLE stream_sessions (
   exit_reason        VARCHAR(64) NULL,
   KEY idx_ss_stream (stream_id),
   KEY idx_ss_started (started_at)
+);
+
+-- 只存 KMS 密文引用，不存任何明文 URL / stream key
+CREATE TABLE stream_endpoints (
+  id             CHAR(26) PRIMARY KEY,
+  session_id     CHAR(26) NOT NULL,
+  provider       VARCHAR(32) NOT NULL,   -- douyin
+  secret_ref     VARCHAR(255) NOT NULL,  -- KMS 密文引用，非明文
+  url_fingerprint CHAR(64) NOT NULL,     -- 用于比对是否更换地址，不可逆
+  expires_at     DATETIME(3) NOT NULL,
+  created_at     DATETIME(3) NOT NULL,
+  revoked_at     DATETIME(3) NULL,
+  UNIQUE KEY uk_se_session (session_id),
+  KEY idx_se_expires (expires_at)
 );
 ```
 
@@ -295,6 +311,7 @@ CREATE TABLE audit_logs (
 | takeovers / incidents | 1 年 | OSS | 到期删除 |
 | audit_logs | 1 年 | OSS WORM（可选） | 到期删除 |
 | tts_assets | 7 天 | 不归档 | OSS 生命周期 |
+| stream_endpoints | 收播后立即吊销 | 保留密文引用 90 天用于审计 | 到期删除密文与引用 |
 | 直播录像 | 30 天 | 低频/归档存储 | OSS 生命周期 |
 
 分区建议：`comments`、`replies`、`moderation_events`、`cost_ledger` 按月分区（或按日），便于快速清理。

@@ -7,10 +7,12 @@
 | 编号 | 决策 | 状态 |
 | --- | --- | --- |
 | [0001](0001-primary-cloud-alibaba.md) | 生产主链路采用阿里云 + 百炼托管模型 | Accepted |
-| 0002 | 渲染技术路线（2D 视频驱动 / Live2D / 3D） | Proposed（待评估） |
-| 0003 | 云端推流 vs 本地伴侣推流（架构 A/B） | Proposed（待平台结论） |
-| 0004 | 发言队列采用 Redis Streams + ZSet | Proposed（随 M3 落地确认） |
-| 0005 | 开源许可证（MIT / Apache-2.0） | **Pending（未决策）** |
+| [0002](0002-live2d-renderer.md) | 数字人渲染采用 Live2D | Accepted |
+| [0003](0003-cloud-rtmp-push.md) | 云端直接推 RTMP（架构 A） | Accepted |
+| [0004](0004-single-platform-single-room.md) | 首发只做抖音单平台、单直播间 | Accepted |
+| [0005](0005-mit-license.md) | 开源许可证采用 MIT | Accepted |
+| [0006](0006-oss-reuse-policy.md) | 开源复用与许可证门禁策略 | Accepted |
+| 0007 | 发言队列采用 Redis Streams + ZSet | Proposed（随 M3 落地确认） |
 
 ## 模板
 

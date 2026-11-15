@@ -11,7 +11,7 @@ Internet
 WAF + SLB（固定公网 IP）
    │
    ├──▶ ECS-A  app-1   4C8G   ingest-gateway / safety / orchestrator / llm-gateway / tts-gateway / control-api
-   ├──▶ ECS-B  render  8C16G  avatar-renderer / streamer（GPU 可选）
+   ├──▶ ECS-B  render  8C16G + GPU  avatar-renderer（Live2D 1080p30）/ streamer（RTMP 直推）
    │
    ├──▶ RDS MySQL 8    2C4G   业务库（仅 VPC）
    ├──▶ Redis 7        2GB    状态/队列（仅 VPC）
@@ -20,6 +20,7 @@ WAF + SLB（固定公网 IP）
 
 本地 Windows（运营侧）
    直播伴侣（人工登录） ──▶ Local Bridge ──mTLS──▶ 云端 /v1/bridge/*
+   Local Bridge 只上报推流地址与心跳，不推流
 ```
 
 **关键网络约束**
@@ -34,12 +35,12 @@ WAF + SLB（固定公网 IP）
 | 组件 | 起步规格 | 扩容触发条件 |
 | --- | --- | --- |
 | 应用 ECS | 4C8G × 1 | CPU > 60% 持续 10 分钟，或事件积压 > 1000 |
-| 渲染节点 | 8C16G（2D）/ GPU（3D） | 掉帧 > 1%，或渲染延迟 p95 > 200ms |
+| 渲染节点 | 8C16G + T4/A10 级 GPU（Live2D 1080p30） | 掉帧 > 1%，或渲染延迟 p95 > 200ms |
 | RDS | 2C4G / 100GB SSD | 连接数 > 70%，或慢查询增长 |
 | Redis | 2GB 主从 | 内存 > 70%，或队列深度持续 > 10 |
 | 带宽 | 5Mbps 起 | 推流码率 ≥ 4Mbps 时按需提升 |
 
-单直播间可全部部署在 ECS-A（渲染用 CPU 模式）；M5 起建议渲染与业务分机，避免互相抢占。
+单直播间采用「ECS-A 业务 + ECS-B GPU 渲染/推流」两机起步。开发环境可用 720p + CPU 软渲染，但**不得**作为生产容量依据。Live2D 模型、动作与贴图存放 OSS，部署时按版本下载到渲染节点本地缓存，**不入镜像、不入仓库**。
 
 ## 3. 环境与配置
 
@@ -96,10 +97,10 @@ WAF + SLB（固定公网 IP）
 ### 7.1 推流断开
 
 1. 查 `sp.stream.status` 与 Streamer 日志；
-2. 确认 RTMP 凭据是否过期（本地桥/平台侧）；
-3. 自动重连失败则人工执行 `POST /control {action:"reconnect"}`（规划接口）；
-4. 仍失败：切换到备用渲染/推流节点，本地伴倡手动开播；
-5. 记录 `incidents`，复盘网络与服务端原因。
+2. 确认 RTMP 凭据是否过期（本地桥/平台侧），过期则通知运营重新获取；
+3. 自动重连失败则人工执行 `POST /control {action:"reconnect"}`；
+4. 仍失败：切换到备用渲染/推流节点；若仍不可用，运营用直播伴侣人工开播作为应急（非常态架构）；
+5. 记录 `incidents`，复盘网络、平台限流与服务端原因。
 
 ### 7.2 审核不可用
 
@@ -129,6 +130,14 @@ WAF + SLB（固定公网 IP）
 2. 人工接管话术与画面；
 3. 处置完成后填写结论并释放；
 4. 系统自动生成接管记录与复盘条目。
+
+### 7.6 平台推流许可与限流
+
+1. 开播前自检必须校验云端推流许可/报备记录有效（LIV-07）；
+2. 监测推流返回码、码率骤降、平台警告与观众端异常反馈；
+3. 出现限流迹象：先降码率/帧率，再降低互动频率，不盲目重连；
+4. 连续失败：停止推流并人工接管，保留日志与截图（不含推流 key）；
+5. 每次事件更新 `incidents`，并在周会复核是否触发架构 B 回退条件。
 
 ## 8. 备份与恢复
 
