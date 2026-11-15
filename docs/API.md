@@ -233,16 +233,24 @@ signature = hex(hmac_sha256(secret, canonical))
 
 **仅上报凭据，不推流。** 推流地址只在内存与 KMS 密文引用中使用，**不得**写入数据库明文字段或日志，也不得回显到前端。本地桥不具备推流能力。
 
+请求（mTLS + 15 分钟短期令牌；`rtmp.key` 只出现一次，云端立即转 KMS 密文）：
+
 ```json
 {
   "bridge_id": "br_01J...",
   "stream_id": "st_01J...",
-  "rtmp": {"url": "rtmp://...", "key_ref": "one_time_01J..."},
+  "rtmp": {
+    "url": "rtmp://push.example.com/live",
+    "key": "平台下发的推流密钥",
+    "key_ref": "up_01J..."
+  },
   "expires_at": "2026-01-01T20:00:00Z"
 }
 ```
 
-响应仅返回 `{"stored": true, "expires_at": "..."}`，不回显地址。
+- `key_ref` 由桥生成，仅作一次性上报引用，供审计与幂等去重，不含密钥信息；
+- 云端校验后返回 `{"stored": true, "expires_at": "..."}`，不回显地址；
+- `stored` 不为 `true` 时桥按失败处理，不重试携带同一 `key_ref` 的请求。
 
 ## 7. 内部事件总线（Redis Streams）
 
