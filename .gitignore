@@ -1,0 +1,156 @@
+# =========================================================
+# StreamPilot - Git ignore rules
+# 原则：依赖、虚拟环境、密钥、媒体大文件、构建产物一律不入库
+# =========================================================
+
+# ---------- 环境与密钥（最高优先级） ----------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+credentials/
+*credentials*.json
+*service-account*.json
+.aws/
+.aliyun/
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+ENV/
+.python-version
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+.uv/
+poetry.lock.bak
+
+# 测试与类型检查缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# ---------- Node / 前端 ----------
+node_modules/
+.pnpm-store/
+dist/
+dist-ssr/
+build/
+.next/
+.nuxt/
+.turbo/
+.vite/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+
+# ---------- 媒体与大文件 ----------
+# 数字人模型、贴图、音频、视频、录屏素材均走 OSS，不入库
+*.mp4
+*.mkv
+*.mov
+*.flv
+*.ts
+*.m4v
+*.webm
+*.wav
+*.mp3
+*.flac
+*.aac
+*.ogg
+*.m4a
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.safetensors
+*.bin
+*.fbx
+*.vrm
+*.pmx
+*.moc3
+*.psd
+*.blend
+*.unitypackage
+
+# 仅在明确需要时用 git add -f 强制加入小型文档配图
+assets/media/
+assets/renders/
+assets/models/
+assets/voices/
+runtime/
+recordings/
+logs/
+
+# ---------- 构建与运行时产物 ----------
+*.log
+*.pid
+*.sock
+tmp/
+temp/
+.cache/
+data/
+out/
+
+# 数据库与导出
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+*.sql.gz
+
+# ---------- 基础设施 ----------
+# Terraform 状态可能含敏感信息，禁止入库
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+!*.tfvars.example
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ---------- 编辑器与系统 ----------
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+
+# ---------- 其他 ----------
+# 本地待办、草稿、个人笔记不入库
+notes/
+scratch/
+*.local.md
