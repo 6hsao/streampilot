@@ -96,6 +96,7 @@ signature = hex(hmac_sha256(secret, canonical))
 
 规则：
 
+- 成功受理返回 `202 Accepted`；
 - 重复 `event_id` / `msg_id` 返回 `accepted: true` 且不重复处理；
 - 限流按 `room_ref` 窗口计数，超限返回 429；
 - 原始用户 ID 在适配层即哈希，不进入下游。
