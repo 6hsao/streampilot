@@ -157,3 +157,164 @@ WAF + SLB（固定公网 IP）
 - 账号：SSH 密钥登录，禁用密码；控制台强制 MFA；
 - 审计：所有登录、接管、配置变更、导出操作留痕；
 - 扫描：镜像漏洞扫描 + 依赖扫描 + 密钥扫描纳入 CI。
+
+## 10. 阿里云 staging 凭据配置指引
+
+> 本节只给占位符与操作步骤，**任何真实值不得写入仓库、文档、工单或聊天**。需要凭据时由持有人在本机按本节步骤注入，不要通过消息索要明文。
+
+### 10.1 凭据分类：三类，互相隔离
+
+| 类别 | 典型载体 | 用途 | 边界（能做什么 / 不能做什么） |
+| --- | --- | --- | --- |
+| 百炼 API Key | 控制台生成的 `sk-` 开头 Key | LLM、CosyVoice、Fun-ASR 的模型调用 | 只能调用模型推理；**不能**管理 ECS/OSS/VPC，不能查看账单 |
+| RAM 程序访问用户 AccessKey | `LTAI` 开头的 ID + Secret | 运行期调用内容安全、读写 OSS；`aliyun` CLI / Terraform | 只能做被策略授予的云资源操作；**不得**用于模型调用 |
+| RAM 角色 / STS 临时凭据（推荐） | 实例角色或 AssumeRole | 生产运行期替代静态 AK | 有效期最长 12 小时，到期自动失效；staging 可先用静态 AK，生产必须切换 |
+
+**为什么不共用同一套**
+
+1. **爆炸半径**：模型 Key 泄漏只能消耗 token；RAM AK 泄漏可能被用来读 OSS、改配置甚至删资源。混用等于把后者的权限暴露在只该调模型的机器上。
+2. **计费与配额归属**：百炼按 token 计费，staging 与 prod 需要独立配额；共用一套会导致限流互相影响，也无法按环境出账。
+3. **轮换粒度**：模型 Key 与基础设施 AK 的更换节奏、审批人、影响面都不同，绑在一起会把一次普通轮换升级成全链路变更。
+4. **审计可归因**：RAM AK 的 OpenAPI 调用进 ActionTrail，模型调用有自己的调用日志；混用后无法区分「谁在调模型」与「谁在改资源」。
+
+RAM 用户至少拆成两个：**infra（Terraform/CLI 管理资源）** 与 **runtime（应用只读写 OSS、调内容安全）**。不要用 root 账号创建 AccessKey。
+
+### 10.2 变量清单（与 `.env.example` 逐项对应）
+
+「可选」列中带默认值表示可以不配；标「必填」表示缺少时对应能力无法启动。
+
+**阿里云相关（本指引重点）**
+
+| 变量 | 含义 | 示例占位 | 可选性 |
+| --- | --- | --- | --- |
+| `ALIYUN_ACCESS_KEY_ID` | RAM 用户 AccessKey ID（runtime/infra 各一套） | `<staging-access-key-id>` | 必填（内容安全、OSS、CLI） |
+| `ALIYUN_ACCESS_KEY_SECRET` | 对应 Secret | `<staging-access-key-secret>` | 必填 |
+| `ALIYUN_REGION` | 地域，staging 固定单地域 | `cn-hangzhou` | 可选（默认 `cn-hangzhou`） |
+| `CONTENT_SAFETY_ENDPOINT` | 内容安全接入点 | `green-cip.cn-hangzhou.aliyuncs.com` | 可选（默认同值） |
+| `OSS_BUCKET` | staging 专用 Bucket | `<staging-bucket>` | 必填（素材/录像） |
+| `OSS_ENDPOINT` | OSS 接入点 | `oss-cn-hangzhou.aliyuncs.com` | 可选（默认同值） |
+| `DASHSCOPE_API_KEY` | 百炼 API Key（LLM/TTS/ASR 共用） | `<dashscope-api-key>` | 必填（启用模型链路时） |
+| `DASHSCOPE_BASE_URL` | OpenAI 兼容端点 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | 可选（默认同值） |
+| `LLM_MODEL_CHAIN` | 降级链，逗号分隔 | `qwen-plus,qwen-turbo` | 可选 |
+| `LLM_MAX_TOKENS` | 单次回复上限 | `200` | 可选（默认 `200`） |
+| `LLM_TEMPERATURE` | 采样温度 | `0.7` | 可选（默认 `0.7`） |
+| `COSYVOICE_WS_URL` | 流式合成 WebSocket 地址 | `wss://dashscope.aliyuncs.com/api-ws/v1/inference` | 可选（默认同值） |
+| `COSYVOICE_MODEL` | 合成模型 | `cosyvoice-v2` | 可选（默认同值） |
+| `COSYVOICE_DEFAULT_VOICE` | 已获授权的音色 ID | `replace_with_authorized_voice_id` | 必填（开播前） |
+| `TTS_AUDIO_FORMAT` | 合成音频格式 | `pcm_16k_mono` | 可选（默认同值） |
+| `TTS_MAX_CONCURRENCY` | 进程内合成并发上限 | `2` | 可选（默认 `2`） |
+| `FUN_ASR_MODEL` | 识别模型（非主链路） | `fun-asr` | 可选 |
+| `FUN_ASR_ENABLED` | 是否启用识别 | `false` | 可选（首发关闭） |
+| `SENSITIVE_WORD_DICT_PATH` | 本地词库目录 | `./config/sensitive_words` | 可选（内置词库默认生效） |
+| `MYSQL_DSN` | 业务库连接串（VPC 内） | `mysql+pymysql://user:password@127.0.0.1:3306/streampilot` | 必填（接入与场次） |
+| `REDIS_URL` | Redis 连接串（VPC 内） | `redis://127.0.0.1:6379/0` | 必填（接入网关/队列） |
+
+**非阿里云相关（一并列出，避免漏配）**
+
+| 变量 | 含义 | 示例占位 | 可选性 |
+| --- | --- | --- | --- |
+| `APP_ENV` | 运行环境 | `staging` | 必填（staging 固定 `staging`） |
+| `APP_LOG_LEVEL` | 日志级别 | `INFO` | 可选 |
+| `APP_HOST` / `APP_PORT` | 监听地址与端口 | `0.0.0.0` / `8000` | 可选 |
+| `DOUYIN_APP_ID` | 开放平台应用 ID | `<douyin-app-id>` | 必填（接评论时） |
+| `DOUYIN_APP_SECRET` | 应用密钥 | `<douyin-app-secret>` | 必填（接评论时） |
+| `INGEST_CALLBACK_SECRET` | 回调签名密钥，≥16 位随机串 | `<random-32-chars>` | 必填（接评论时） |
+| `VIEWER_ID_HASH_SALT` | 观众 ID 哈希盐，≥16 字节 | `<random-16-bytes>` | 必填；变更会使历史哈希失效 |
+| `DOUYIN_WEBHOOK_SIGN_KEY` | Webhook 验签密钥 | `<webhook-sign-key>` | 必填（接评论时） |
+| `STREAM_BRIDGE_SHARED_SECRET` | 本地桥共享密钥 | `<bridge-shared-secret>` | 必填（启用本地桥时） |
+| `STREAM_BRIDGE_CLOUD_URL` | 本地桥云端地址（必须 https） | `https://staging-api.example.com` | 必填（启用本地桥时） |
+| `RTMP_URL` / `RTMP_STREAM_KEY` | 推流地址与密钥 | 留空 | **staging 必须留空**；运行时由凭据桥下发 |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | 链路导出地址 | 留空 | 可选 |
+| `METRICS_PORT` | 指标端口 | `9100` | 可选 |
+
+### 10.3 staging 最小权限策略
+
+**地域**：只授 `cn-hangzhou`，不授多地域；策略中显式写 region 条件，避免「换地域照样能用」。
+
+**infra 用户（Terraform/CLI，按需临时提升）**
+
+- 按产品授予具体的 `Create/Describe/Modify/Delete` 动作，且资源 ARN 限定 staging 前缀；
+- 允许：VPC/交换机/安全组、ECS、SLB、RDS、Redis、OSS Bucket（仅 staging）、日志与监控；
+- 关闭写操作以外的批量删除：`ecs:DeleteInstance`、`rds:DeleteDBInstance`、`oss:DeleteBucket`、`vpc:DeleteVpc` 需走人工审批角色，不放在日常凭据里。
+
+**runtime 用户（应用与联调，长期存在）**
+
+- OSS：仅 `oss:GetObject` / `oss:PutObject` / `oss:DeleteObject` / `oss:ListObjects`，资源限定 `acs:oss:*:*:<staging-bucket>/streampilot-staging/*`；
+- 内容安全：仅文本审核对应的 `green:TextModeration`（或账号已开通的等价动作），region 限定 `cn-hangzhou`；
+- KMS（启用密文引用后）：仅 `kms:Encrypt` / `kms:Decrypt` / `kms:GenerateDataKey`，资源限定单个 staging Key；
+- 只读运维：`rds:Describe*`、`redis:Describe*`、`ecs:Describe*` 可给；**不给**任何 `Delete*`、`Create*`。
+
+**明确避免的高危权限**
+
+- `AdministratorAccess`、`*:*`、`AliyunRAMFullAccess`、`AliyunSTSAssumeRole` 到宽泛角色；
+- `ram:CreateAccessKey` / `ram:AttachPolicyToUser`（可自我提权）；
+- `oss:PutBucketAcl`、把 Bucket 设为公共读写的任何动作；
+- `bss:*`（账单与充值）、`kms:ScheduleKeyDeletion`、`kms:DisableKey`；
+- 生产资源与 staging 共用同一 AK；root 账号 AK（禁止创建）。
+
+### 10.4 本机落地步骤（Windows / PowerShell）
+
+```powershell
+# 1) 从模板创建本地配置（.env 已被 .gitignore 忽略）
+Copy-Item .env.example .env
+# 2) 只在本地编辑器里把占位符替换为真实值，不要粘贴到聊天/工单
+notepad .env
+```
+
+确认 `.env` 不会被提交：
+
+```powershell
+git check-ignore -v .env     # 期望输出命中 .gitignore 中的 .env 规则
+git status --short           # 期望结果里没有 .env
+git ls-files .env            # 期望输出为空
+```
+
+在当前终端临时注入（**仅当前进程有效，关闭终端即失效，不写任何文件**）：
+
+```powershell
+$env:ALIYUN_ACCESS_KEY_ID = 'staging-access-key-id-here'
+$env:ALIYUN_ACCESS_KEY_SECRET = 'staging-access-key-secret-here'
+$env:DASHSCOPE_API_KEY = 'dashscope-api-key-here'
+```
+
+- 不要用 `--access-key-id` 之类的命令行参数传密钥，以免进入 shell 历史；
+- 不要把密钥写进 PowerShell Profile、任务计划或 IDE 运行配置；
+- 若使用 `aliyun configure --profile staging`，凭据会存到用户目录（仓库之外），不要把该文件复制进工作区。
+
+### 10.5 验证方式
+
+1. **身份可用性**（不打印 Secret）：`aliyun sts GetCallerIdentity`，应返回 staging RAM 用户的 ARN；若报 `InvalidAccessKeyId` 说明注入未生效或 Key 已作废。
+2. **OSS 权限**：用 `ossutil ls oss://<staging-bucket>/streampilot-staging/`（`aliyun` CLI 不覆盖 OSS 对象操作）应成功；对非授权前缀应返回 `AccessDenied`（这正说明策略生效）。
+3. **百炼 Key**：用最小请求验证，不回显 Key：
+   ```powershell
+   curl.exe -sS -o NUL -w "%{http_code}`n" `
+     -H "Authorization: Bearer $env:DASHSCOPE_API_KEY" `
+     -H "Content-Type: application/json" `
+     -d '{"model":"qwen-turbo","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' `
+     https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions
+   ```
+   期望 `200`；`401` 为 Key 无效，`403` 多为业务空间未授权。
+4. **内容安全**：按 [TASKS.md](TASKS.md) 中 SAF-02 的 staging 联调项，用真实凭据跑一次文本审核，确认签名通过、返回 `status` 与 `latency_ms`；这一步不做则 SAF-02 视为未验收。
+5. **服务健康检查**：启动接入网关后 `curl.exe -fsS http://127.0.0.1:8000/healthz`，确认返回 200；`/readyz`（依赖 Redis/MySQL 的深度检查）在本文档中仍属规划项，当前版本未提供，不要据此判定凭据可用。
+6. **本地闸门**：`uv run ruff check src tests; uv run mypy; uv run pytest`，任何真实 Key 都不应出现在仓库与测试输出中。
+
+### 10.6 轮换与泄露处置
+
+**轮换周期**
+
+- 百炼 API Key：90 天，或人员/外包变动、环境迁移时立即更换；
+- RAM AccessKey：90 天；生产建议改用实例角色/STS（≤12h）；
+- 本地桥令牌：15 分钟自动轮换（已实现），无需人工干预；
+- staging 与 prod 使用**不同** Key，禁止跨环境复用。
+
+**正常轮换顺序**：新建 Key → 注入 staging（环境变量/KMS）→ 跑 10.5 的验证 → 观察 24 小时 → 停用旧 Key → 观察 24 小时 → 删除旧 Key。全程保留 ActionTrail 记录。
+
+**误提交处置顺序（先作废，再清理）**
+
+1. **立即作废**：控制台禁用/删除对应 AccessKey 与百炼 Key，不要先花时间改 Git 历史；
+2. **止血**：注入新 Key 恢复 staging；检查 ActionTrail 与百炼调用日志是否有异常调用、账单是否突增；
+3. **清理历史**：`git filter-repo` 重写受影响分支并强推，通知协作者重新克隆；确认 CI 密钥扫描（gitleaks）已覆盖该路径；
+4. **假设已泄露**：公开仓库的 Key 一律按已泄露处理，检查 OSS 是否被设为公共读、是否有异常资源创建，必要时提交工单并保留证据；
+5. **复盘**：在 `incidents` 记录时间线、影响与改进项；若属流程缺失，补充 pre-commit 密钥扫描。
+
+**不要在** Issue、PR、群聊、截图、日志或工单里粘贴真实 Key；需要他人协助时只提供变量名与占位符。
