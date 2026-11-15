@@ -78,7 +78,9 @@ jobs:
       - name: Check dependency licenses
         run: uv run python scripts/check_licenses.py
       - name: Generate SBOM
-        run: uv run cyclonedx-py environment -o build/sbom.cdx.json
+        run: |
+          mkdir -p build
+          uv run cyclonedx-py environment -o build/sbom.cdx.json
       - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
