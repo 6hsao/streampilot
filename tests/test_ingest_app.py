@@ -29,6 +29,7 @@ TRACE_HEADER = "x-trace-id"
 
 def _payload(
     event_id: str = "evt_01J8ZQ7K3M9WQ2V6H4T8R1X5B0",
+    msg_id: str = "msg_987654321",
 ) -> dict[str, Any]:
     """构造一条合法事件载荷。"""
     return {
@@ -37,7 +38,7 @@ def _payload(
         "occurred_at": "2026-01-01T12:00:00Z",
         "room_ref": "room_123456",
         "message": {
-            "msg_id": "msg_987654321",
+            "msg_id": msg_id,
             "user_ref": "hashed_user_abc",
             "text": "主播这个怎么买？",
         },
@@ -128,12 +129,28 @@ def test_duplicate_event_is_idempotent() -> None:
     assert len(publisher.published) == 1
 
 
+def test_duplicate_msg_id_is_deduplicated() -> None:
+    """同一 msg_id 的不同事件只投递一次。"""
+    client, publisher = _client()
+    first = _payload("evt_first_0001")
+    second = _payload("evt_second_0002")
+
+    first_response = _post(client, first, nonce="n1")
+    second_response = _post(client, second, nonce="n2")
+
+    assert first_response.status_code == 202
+    assert second_response.status_code == 202
+    assert len(publisher.published) == 1
+
+
 def test_rate_limit_returns_429_with_retry_after() -> None:
     """超出房间限额返回 429 并带 Retry-After。"""
     client, publisher = _client(limit=1)
 
-    first = _post(client, _payload("evt_first_0001"), nonce="n1")
-    second = _post(client, _payload("evt_second_0002"), nonce="n2")
+    first = _post(client, _payload("evt_first_0001", "msg_first"), nonce="n1")
+    second = _post(
+        client, _payload("evt_second_0002", "msg_second"), nonce="n2"
+    )
 
     assert first.status_code == 202
     assert second.status_code == 429

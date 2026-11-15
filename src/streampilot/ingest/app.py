@@ -36,6 +36,8 @@ MIN_SECRET_LENGTH = 16
 DEFAULT_IDEMPOTENCY_TTL = 3600
 # 默认每秒每房间限流阈值
 DEFAULT_RATE_LIMIT = 50
+# 同一 msg_id 的短时去重窗口，单位秒
+MSG_DEDUPE_TTL_SECONDS = 120
 INGEST_PATH = "/v1/ingest/douyin/events"
 
 
@@ -192,6 +194,10 @@ def create_app(
                 ErrorCode.INVALID_ARGUMENT,
                 "invalid event payload",
             ) from exc
+
+        msg_key = f"msg:{event.message.msg_id}"
+        if not idempotency.claim(msg_key, MSG_DEDUPE_TTL_SECONDS):
+            return IngestResponse(event_id=event.event_id, trace_id=trace_id)
 
         if not rate_limiter.allow(f"room:{event.room_ref}"):
             raise ApiError(
