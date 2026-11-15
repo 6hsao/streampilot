@@ -100,12 +100,12 @@
 
 | 项目 | 能力 | 边界与问题 | 许可证 | MIT 兼容 | 结论 |
 | --- | --- | --- | --- | --- | --- |
-| houbb/sensitive-word | DFA 敏感词匹配、分词、替换 | 词库质量与领域覆盖有限；需自建分级词库 | Apache-2.0 | ✅ | **采用**（`SAF-01`） |
+| houbb/sensitive-word | DFA 敏感词匹配、分词、替换 | **Java 实现**，Python 服务无法直接复用；仅参考算法思路 | Apache-2.0 | ✅（思路参考） | 不引入依赖（`SAF-01` 自研 Python DFA） |
 | toolgood/ToolGood.Words | 敏感词、拼音、繁简 | 多语言实现，Python 侧集成成本较高 | Apache-2.0 | ✅ | 备选 |
 | observerss/textfilter | 敏感词过滤 | **无许可证文件** | 无 | ❌ | 不可复用 |
 | PaddlePaddle/PaddleNLP | 文本分类、语义模型 | 需模型与推理资源；作为 L3 兜底候选 | Apache-2.0 | ✅ | Post-1.0 评估 |
 
-**结论**：规则层复用 `sensitive-word` 的 DFA 内核；分级词库、白名单、熔断策略、云审核适配全部自研。云审核（阿里云内容安全）是 SaaS 调用，不涉及代码许可。
+**结论**：规则内核在 Python 侧自研（Trie/DFA + 归一化 + 白名单屏蔽 + 命中解释），sensitive-word 仅作为算法参考；分级词库、白名单、熔断策略、云审核适配全部自研。云审核（阿里云内容安全）是 SaaS 调用，不涉及代码许可。
 
 ### 3.7 完整参考架构（不 fork）
 
@@ -123,7 +123,7 @@
 | 评论接入 | 无（官方 SDK 不适用） | 官方 OpenAPI 适配、验签、幂等、限流 | 平台字段 → 内部事件 schema |
 | 对话编排 | 无（参考 LangGraph 思想） | 状态机、队列、节奏、打断、接管 | 事件总线与 Redis 状态 |
 | LLM 网关 | 暂不引入 LiteLLM | DashScope 适配、路由、降级、记账 | 统一 `LLMProvider` 接口 |
-| 内容安全规则 | houbb/sensitive-word（Apache-2.0） | 分级词库、白名单、策略、熔断 | 云审核 + 模型兜底适配 |
+| 内容安全规则 | 自研 Python DFA（参考 houbb/sensitive-word 思路） | 分级词库、白名单、策略、熔断 | 云审核 + 模型兜底适配 |
 | TTS | CosyVoice 托管 API | 文本规范化、缓存、计费 | 分块音频 → 时间戳 → 口型 |
 | Live2D 渲染 | pixi-live2d-display（MIT）+ Cubism Core（专有） | 渲染服务、口型驱动、表情/动作状态机、场景合成 | 音频时间戳 → 口型参数 → 渲染 |
 | 媒体与推流 | FFmpeg（LGPL）/ GStreamer（LGPL） | 推流守护、码率自适应、断流重连 | 帧/音频 → 管线 → RTMP |
@@ -148,7 +148,7 @@
 | O-02 | 本主体营收是否达到 Cubism Release License 门槛 | 授权成本 | 法务按最近财年确认（GOV-07） |
 | O-03 | FFmpeg LGPL 构建是否满足推流与滤镜需求 | 媒体栈 | 构建清单 + 许可证扫描（LIV-09） |
 | O-04 | GStreamer 插件清单中是否存在 GPL 插件 | 许可证 | 插件审计 |
-| O-05 | sensitive-word 在中文直播语境下的误杀率 | 安全策略 | 用红队集回归（SAF-06） |
+| O-05 | 自研 DFA 在中文直播语境下的误杀率 | 安全策略 | 用红队集回归（SAF-06） |
 | O-06 | 是否存在官方认可的直播评论 SDK | 接入方式 | 向平台/服务商书面确认（GOV-01） |
 
 ## 7. 不采用清单（黑名单）
@@ -164,6 +164,6 @@
 
 ## 8. 对技术选型与任务的影响
 
-- 技术选型：Live2D 渲染确定 `pixi-live2d-display`；媒体层确定 FFmpeg（LGPL）+ GStreamer；安全规则层确定 `sensitive-word`；编排与网关保持自研。
+- 技术选型：Live2D 渲染确定 `pixi-live2d-display`；媒体层确定 FFmpeg（LGPL）+ GStreamer；安全规则层自研 Python DFA（sensitive-word 为 Java，仅参考思路）；编排与网关保持自研。
 - 任务调整：新增 `INF-08`（许可证门禁）、`AVT-08`（GPU 渲染稳定性）、`LIV-08`（推流地址防泄露）、`LIV-09`（媒体栈许可证验证）；`GOV-07` 覆盖 Live2D 软件与模型授权；`OPS-03` 降级为 Post-1.0。
 - 发布要求：仓库根目录维护第三方组件清单与 NOTICE；不含任何模型、字体、专有运行时与推流凭据。

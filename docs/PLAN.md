@@ -275,7 +275,7 @@ Streamer ──⑩ 抖动缓冲 → RTMP 推流 ──▶ 平台
 | 评论接入 | **自研适配层**，只接官方 OpenAPI | 现有抓包/非官方 SDK 均违反合规硬约束（多为 AGPL/GPL 或不明许可） |
 | 对话编排 | **自研轻量状态机** | LangGraph（MIT）能力过剩、抽象成本高；参考其状态图思想，不引入依赖 |
 | 模型网关 | **自研薄网关** | 首发仅 DashScope；LiteLLM（MIT + 企业目录例外）作为后续多供应商备选 |
-| 内容安全规则层 | **复用 houbb/sensitive-word（Apache-2.0）** 的 DFA 内核 | 成熟、性能好、许可证兼容；词库与策略仍自建 |
+| 内容安全规则层 | **自研 Python DFA 内核**（参考 houbb/sensitive-word 的 Apache-2.0 思路，不引入 Java 依赖） | 语言栈一致、可控热更新与命中解释；词库、白名单与策略自建 |
 | TTS | **托管 CosyVoice API**；离线实验可参考 CosyVoice 仓库（Apache-2.0） | 自托管需 GPU 与模型运维，不符合首期投入产出 |
 | Live2D 渲染 | **复用 pixi-live2d-display（MIT）+ Cubism Core（专有运行时）** | 渲染层成熟；Cubism Core 不入库，商用需按营收阈值取得 Release License |
 | 媒体管线 | **复用 FFmpeg（LGPL 构建，独立进程）**，GStreamer（LGPL）做合成 | 进程隔离规避 GPL 传染；OBS（GPL-2.0）仅作人工备用，不嵌入 |
