@@ -6,6 +6,12 @@ from streampilot.safety.aliyun import (
     parse_verdict,
     sign_request,
 )
+from streampilot.safety.circuit import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitRegistry,
+    CircuitState,
+)
 from streampilot.safety.cloud import (
     CloudModerator,
     CloudVerdict,
@@ -29,6 +35,10 @@ from streampilot.safety.service import SafetyDecision, SafetyService
 __all__ = [
     "Action",
     "AliyunGreenModerator",
+    "CircuitBreaker",
+    "CircuitOpenError",
+    "CircuitRegistry",
+    "CircuitState",
     "CloudModerator",
     "CloudVerdict",
     "Direction",
