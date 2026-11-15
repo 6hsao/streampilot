@@ -1,0 +1,63 @@
+[project]
+name = "streampilot"
+version = "0.1.0"
+description = "AI 虚拟主播系统：评论接入、内容安全、LLM 对话、TTS、Live2D 渲染与云端 RTMP 推流"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [{ name = "StreamPilot contributors" }]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: MIT License",
+]
+dependencies = [
+  "fastapi>=0.115,<1",
+  "httpx>=0.28,<1",
+  "pydantic>=2.9,<3",
+  "redis>=5.2,<6",
+  "uvicorn>=0.32,<1",
+]
+
+[dependency-groups]
+dev = [
+  "mypy>=1.13,<2",
+  "pip-audit>=2.7,<3",
+  "pytest>=8.3,<9",
+  "pytest-asyncio>=0.24,<1",
+  "pytest-cov>=6,<7",
+  "ruff>=0.8,<1",
+]
+
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/streampilot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers --cov=streampilot --cov-report=term-missing --cov-fail-under=80"
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 79
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["streampilot"]
+
+[tool.mypy]
+python_version = "3.11"
+files = ["src", "tests"]
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["pytest"]
+ignore_missing_imports = true

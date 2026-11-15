@@ -144,6 +144,10 @@ streampilot/
 ├── README.md
 ├── .gitignore
 ├── .env.example              # 环境变量模板（真实密钥只放 .env，不入库）
+├── pyproject.toml            # Python 依赖与 lint / 类型 / 测试配置
+├── uv.lock                   # 依赖锁定文件（必须入库）
+├── src/streampilot/          # 共享 Python 包
+│   └── contracts/            # 事件与错误码契约
 ├── docs/                     # 产品计划、架构、契约、部署、合规、成本
 │   ├── PLAN.md
 │   ├── ARCHITECTURE.md
@@ -177,6 +181,20 @@ streampilot/
 ```
 
 > `services/` `apps/` `packages/` `infra/` 下的代码目录将在 M1 起按任务清单逐步创建。当前阶段不提交空目录。
+
+## 本地开发
+
+前置：Python ≥ 3.11 与 [uv](https://docs.astral.sh/uv/)。前端工具链（pnpm + tsc + eslint）随后续 `apps/control-console` 落地，当前 CI 暂不校验前端。
+
+```bash
+uv sync --all-groups       # 创建 .venv 并安装依赖
+uv run ruff check .        # 静态检查
+uv run ruff format --check .
+uv run mypy                # 类型检查（strict）
+uv run pytest              # 单测 + 覆盖率（门槛 80%）
+```
+
+约定：依赖只通过 `uv add` 变更并提交 `uv.lock`；不提交 `.venv`、`.env` 与任何真实凭证。
 
 ## 模块职责
 
