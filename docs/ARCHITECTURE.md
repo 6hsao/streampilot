@@ -125,6 +125,27 @@ Safety 命中高危 / 错误率超阈值
 - **状态冲突**：所有状态迁移使用 Lua 脚本做 CAS，非法迁移返回 `409 STATE_CONFLICT`。
 - **超时**：任何阶段超时都进入「丢弃该条 + 计数 + 告警」，不阻塞后续事件。
 
+### 5.1 场次状态机
+
+实现在 `src/streampilot/orchestrator/state.py`，配套单测 `tests/test_state_machine.py`。
+
+| 当前状态 | 允许迁移到 | 触发条件 |
+| --- | --- | --- |
+| `idle` | `interacting` / `takeover` / `circuit_open` / `ended` | 新评论入队 / 人工接管 / 熔断 / 收播 |
+| `interacting` | `speaking` / `cooldown` / `circuit_open` / `takeover` / `ended` | 首句审核通过 / 无话可说 / 熔断 / 接管 / 收播 |
+| `speaking` | `interacting` / `cooldown` / `circuit_open` / `takeover` / `ended` | 有新评论 / 说完冷却 / 熔断 / 接管 / 收播 |
+| `cooldown` | `idle` / `interacting` / `circuit_open` / `takeover` / `ended` | 冷却结束 / 新评论 / 熔断 / 接管 / 收播 |
+| `circuit_open` | `idle` / `takeover` / `ended` | 人工确认解除 / 接管 / 收播 |
+| `takeover` | `idle` / `ended` | 释放接管 / 收播 |
+| `ended` | 无（终态） | — |
+
+规则：
+
+1. **优先级**：`takeover` 与 `circuit_open` 可打断任何非终态；`ended` 只能从非终态进入，进入后不可迁出。
+2. **不可跳过**：`circuit_open` 不能直接回到业务流程状态，必须先经人工确认回到 `idle`，防止熔断未处置就恢复发声。
+3. **非法迁移**：未在表中的迁移一律拒绝，控制面映射为 `409 STATE_CONFLICT`。
+4. **审计**：每次迁移记录 `(目标状态, 原因)`，原因携带操作人或熔断依据，落 `audit_logs`。
+
 ## 6. 失败模式与降级矩阵
 
 | 失败点 | 检测方式 | 自动动作 | 是否需人工 | 对外表现 |
