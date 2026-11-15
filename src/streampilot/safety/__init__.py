@@ -29,12 +29,26 @@ from streampilot.safety.models import (
     Severity,
     WordRule,
 )
+from streampilot.safety.output import (
+    DEFAULT_FALLBACK_PHRASE,
+    ApprovedSentence,
+    GuardStats,
+    OutputGuard,
+)
 from streampilot.safety.rules import RuleLoadError, RuleProvider, load_rules
+from streampilot.safety.sentences import (
+    DEFAULT_MAX_CHARS,
+    SentenceSplitter,
+    split_sentences,
+)
 from streampilot.safety.service import SafetyDecision, SafetyService
 
 __all__ = [
+    "DEFAULT_FALLBACK_PHRASE",
+    "DEFAULT_MAX_CHARS",
     "Action",
     "AliyunGreenModerator",
+    "ApprovedSentence",
     "CircuitBreaker",
     "CircuitOpenError",
     "CircuitRegistry",
@@ -42,9 +56,11 @@ __all__ = [
     "CloudModerator",
     "CloudVerdict",
     "Direction",
+    "GuardStats",
     "Hit",
     "MinuteQuota",
     "ModerationUnavailableError",
+    "OutputGuard",
     "PatternRule",
     "RuleLoadError",
     "RuleProvider",
@@ -53,6 +69,7 @@ __all__ = [
     "SafetyEngine",
     "SafetyService",
     "ScanResult",
+    "SentenceSplitter",
     "Severity",
     "SignedRequest",
     "WordRule",
@@ -60,4 +77,5 @@ __all__ = [
     "normalize",
     "parse_verdict",
     "sign_request",
+    "split_sentences",
 ]
