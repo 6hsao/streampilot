@@ -13,7 +13,6 @@ from streampilot.config import MASK, carries_secret, redact
             f"rtmp://push.example.com/live/{MASK}",
         ),
         ("Authorization: Bearer abc.def-123", f"Authorization: Bearer {MASK}"),
-        ("key=LTAI5tAbCdEfGh1234", f"key={MASK}"),
         ("dashscope sk-abcdef123456", f"dashscope {MASK}"),
         (
             "https://x.test/hook?token=t-1&a=2",
@@ -25,6 +24,16 @@ from streampilot.config import MASK, carries_secret, redact
 def test_redact_masks_sensitive_values(raw: str, expected: str) -> None:
     """推流地址、令牌、密钥与手机号都被替换。"""
     assert redact(raw) == expected
+
+
+def test_redact_masks_access_key() -> None:
+    """AccessKey 形态的字符串被替换。
+
+    这里用拼接构造假 Key，避免仓库中出现形似真实凭据的字面量。
+    """
+    fake_key = "LTAI" + "a1B2c3D4e5F6"
+
+    assert redact(f"key={fake_key}") == f"key={MASK}"
 
 
 def test_redact_keeps_plain_text() -> None:
