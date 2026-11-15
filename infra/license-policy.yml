@@ -1,0 +1,27 @@
+# 许可证准入策略（INF-08）
+# 规则说明：docs/OPEN-SOURCE.md 第 2 节。未列出的许可证一律进入人工复核。
+
+allowed:
+  - MIT
+  - BSD-2-Clause
+  - BSD-3-Clause
+  - Apache-2.0
+  - ISC
+  - PSF-2.0
+  - MPL-2.0
+  - Unlicense
+
+denied:
+  - GPL-2.0
+  - GPL-3.0
+  - AGPL-3.0
+  - LGPL-2.1
+  - LGPL-3.0
+  - SSPL-1.0
+  - BUSL-1.1
+  - Elastic-2.0
+  - CC-BY-NC-4.0
+  - Commons-Clause
+
+# 仅允许把 REVIEW 降级为 ALLOW，必须写明理由与责任人；DENY 不可豁免
+exceptions: []

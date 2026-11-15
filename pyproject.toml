@@ -20,8 +20,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+  "cyclonedx-bom>=6,<7",
   "mypy>=1.13,<2",
+  "packaging>=24",
   "pip-audit>=2.7,<3",
+  "pip-licenses>=5,<6",
   "pytest>=9.0.3,<10",
   "pytest-asyncio>=1.0,<2",
   "pytest-cov>=6,<7",
