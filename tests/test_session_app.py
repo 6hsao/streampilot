@@ -1,6 +1,6 @@
 """场次管理接口的契约测试。"""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -11,8 +11,11 @@ from streampilot.control.store import (
     InMemoryTakeoverStore,
 )
 from streampilot.session.app import create_session_router
+from streampilot.session.facts import StaticFactSource
 from streampilot.session.manager import SessionManager
+from streampilot.session.permit import PermitRegistry, PushPermit
 
+NOW = datetime(2026, 1, 1, tzinfo=UTC)
 HEADERS = {"X-Operator-Id": "op_1"}
 CREATE_BODY = {
     "persona_id": "p_1",
@@ -24,18 +27,44 @@ CREATE_BODY = {
 }
 
 
-def _client() -> TestClient:
+def _passing_source() -> StaticFactSource:
+    """构造全部通过的事实源。"""
+    permits = PermitRegistry()
+    permits.register(
+        PushPermit(
+            number="permit_001",
+            expires_at=NOW + timedelta(days=30),
+            egress_ips=("203.0.113.10",),
+            archive_ref="GOV-05/2026-001",
+        )
+    )
+    return StaticFactSource(
+        platform_authorized_until=NOW + timedelta(days=30),
+        avatar_license_until=NOW + timedelta(days=30),
+        voice_license_until=NOW + timedelta(days=30),
+        aigc_label_enabled=True,
+        safety_probe=lambda: True,
+        rtmp_credential_probe=lambda: True,
+        rtmp_reachable_probe=lambda: True,
+        live2d_model_ready=True,
+        cubism_license_recorded=True,
+        permits=permits,
+    )
+
+
+def _client(facts: StaticFactSource | None = None) -> TestClient:
     """构建带场次管理路由的测试客户端。"""
     audit = InMemoryAuditStore()
     control = ControlService(
         audit=audit,
         takeovers=InMemoryTakeoverStore(),
-        clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+        clock=lambda: NOW,
     )
     manager = SessionManager(
         control=control,
         audit=audit,
-        clock=lambda: datetime(2026, 1, 1, tzinfo=UTC),
+        clock=lambda: NOW,
+        facts=facts or _passing_source(),
     )
     app = create_app(control)
     app.include_router(create_session_router(manager))
@@ -104,6 +133,23 @@ def test_create_returns_config_snapshot() -> None:
     assert body["voice_id"] == "voice_1"
     assert body["avatar_id"] == "avatar_1"
     assert body["created_at"].startswith("2026-01-01T00:00:00")
+
+
+def test_start_blocked_when_preflight_fails() -> None:
+    """自检未通过返回 403 与失败项清单。"""
+    client = _client(facts=StaticFactSource())
+    stream_id = _create(client)
+
+    response = client.post(
+        f"/v1/streams/{stream_id}/start",
+        json={},
+        headers=HEADERS,
+    )
+
+    assert response.status_code == 403
+    error = response.json()["error"]
+    assert error["code"] == "PERMISSION_DENIED"
+    assert "push_permit" in error["details"]["failed_checks"]
 
 
 def test_duplicate_start_returns_409() -> None:

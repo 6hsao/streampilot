@@ -19,6 +19,7 @@ from streampilot.control.store import (
 from streampilot.orchestrator.queue import InMemorySpeechQueue
 from streampilot.orchestrator.state import SessionStateMachine
 from streampilot.session.app import create_session_router
+from streampilot.session.facts import load_fact_source
 from streampilot.session.manager import SessionManager
 
 # 本地联调用的预设话术
@@ -47,6 +48,7 @@ def build_app() -> FastAPI:
         audit=audit,
         org_id=org_id,
         templates=DEMO_TEMPLATES,
+        facts=load_fact_source(),
     )
     app = create_app(service)
     app.include_router(create_session_router(manager))

@@ -6,7 +6,7 @@
 
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 from streampilot.contracts import ApiError, ErrorCode
 from streampilot.contracts.ids import new_id
@@ -18,11 +18,17 @@ from streampilot.control.store import AuditStore
 from streampilot.orchestrator.queue import InMemorySpeechQueue
 from streampilot.orchestrator.state import SessionStateMachine
 from streampilot.persona.models import PersonaSnapshot
+from streampilot.session.facts import FactSource, StaticFactSource
 from streampilot.session.models import (
     SessionConfig,
     SessionStateError,
     SessionStatus,
     StreamSession,
+)
+from streampilot.session.preflight import (
+    PreflightFacts,
+    PreflightReport,
+    run_preflight,
 )
 from streampilot.session.views import (
     CreateStreamRequest,
@@ -46,6 +52,7 @@ class SessionManager:
         clock: 时间源，便于测试注入。
         runtime_factory: 运行时工厂，缺省使用内存队列与日志下游。
         templates: 预设话术，注入新建场次。
+        facts: 开播自检事实源，缺省全部不可用（fail-closed）。
     """
 
     def __init__(
@@ -57,6 +64,7 @@ class SessionManager:
         clock: Callable[[], datetime] | None = None,
         runtime_factory: RuntimeFactory | None = None,
         templates: Mapping[str, str] | None = None,
+        facts: FactSource | None = None,
     ) -> None:
         self._control = control
         self._audit = audit
@@ -64,6 +72,7 @@ class SessionManager:
         self._clock = clock or (lambda: datetime.now(UTC))
         self._templates = dict(templates or {})
         self._runtime_factory = runtime_factory or self._default_runtime
+        self._facts = facts or StaticFactSource()
         self._sessions: dict[str, StreamSession] = {}
 
     def create(
@@ -127,29 +136,50 @@ class SessionManager:
         *,
         request: StartStreamRequest,
         operator: str,
-        checks: Mapping[str, bool] | None = None,
     ) -> SessionView:
-        """开播；自检结果由调用方提供，缺省视为通过。
+        """开播；先执行合规自检，任一不通过即禁止开播。
 
         Args:
             stream_id: 场次标识。
             request: 开播请求。
             operator: 操作人。
-            checks: 合规自检结果，由 LIV-07 接入。
 
         Returns:
             更新后的场次视图。
 
         Raises:
-            ApiError: 场次不存在或状态非法。
+            ApiError: 场次不存在、状态非法或自检未通过。
         """
         session = self._require(stream_id)
         actor = self._require_operator(operator)
         before = self._status_snapshot(session)
+        if session.status is not SessionStatus.CREATED:
+            exc = SessionStateError(f"cannot start from {session.status}")
+            self._reject(
+                stream_id,
+                actor,
+                "session.start",
+                before,
+                ErrorCode.STATE_CONFLICT,
+                str(exc),
+            )
+            raise ApiError(ErrorCode.STATE_CONFLICT, str(exc)) from exc
+        facts, report = self._run_preflight(stream_id, session)
+        if not report.ok:
+            self._reject_preflight(
+                stream_id, actor, "session.start", before, facts, report
+            )
         try:
-            session.start(checks or {}, actor, now=self._clock())
+            session.start(report.as_mapping(), actor, now=self._clock())
         except SessionStateError as exc:
-            self._reject(stream_id, actor, "session.start", before, exc)
+            self._reject(
+                stream_id,
+                actor,
+                "session.start",
+                before,
+                ErrorCode.STATE_CONFLICT,
+                str(exc),
+            )
             raise ApiError(ErrorCode.STATE_CONFLICT, str(exc)) from exc
         self._record(
             stream_id,
@@ -158,6 +188,7 @@ class SessionManager:
             before,
             {
                 "status": session.status.value,
+                "permit_number": facts.push_permit_number,
                 "expected_start_at": (
                     request.expected_start_at.isoformat()
                     if request.expected_start_at
@@ -191,12 +222,14 @@ class SessionManager:
         actor = self._require_operator(operator)
         before = self._status_snapshot(session)
         if session.status is not SessionStatus.LIVE:
+            exc = SessionStateError(f"cannot stop from {session.status}")
             self._reject(
                 stream_id,
                 actor,
                 "session.stop",
                 before,
-                SessionStateError(f"cannot stop from {session.status}"),
+                ErrorCode.STATE_CONFLICT,
+                str(exc),
             )
             raise ApiError(
                 ErrorCode.STATE_CONFLICT,
@@ -244,16 +277,23 @@ class SessionManager:
         actor = self._require_operator(operator)
         before = self._status_snapshot(session)
         if session.status is not SessionStatus.STOPPED:
+            exc = SessionStateError(f"cannot resume from {session.status}")
             self._reject(
                 stream_id,
                 actor,
                 "session.resume",
                 before,
-                SessionStateError(f"cannot resume from {session.status}"),
+                ErrorCode.STATE_CONFLICT,
+                str(exc),
             )
             raise ApiError(
                 ErrorCode.STATE_CONFLICT,
                 f"cannot resume from {session.status}",
+            )
+        facts, report = self._run_preflight(stream_id, session)
+        if not report.ok:
+            self._reject_preflight(
+                stream_id, actor, "session.resume", before, facts, report
             )
         self._control.reset_for_resume(stream_id)
         session.resume(actor, now=self._clock())
@@ -265,6 +305,7 @@ class SessionManager:
             {
                 "status": session.status.value,
                 "reason": request.reason,
+                "permit_number": facts.push_permit_number,
             },
         )
         return self._view(stream_id, session)
@@ -335,21 +376,64 @@ class SessionManager:
             ),
         }
 
+    def _run_preflight(
+        self, stream_id: str, session: StreamSession
+    ) -> tuple[PreflightFacts, PreflightReport]:
+        """收集事实并执行开播自检。"""
+        facts = self._facts.collect(stream_id, session.config)
+        return facts, run_preflight(facts, now=self._clock())
+
+    def _reject_preflight(
+        self,
+        stream_id: str,
+        actor: str,
+        action: str,
+        before: dict[str, Any],
+        facts: PreflightFacts,
+        report: PreflightReport,
+    ) -> NoReturn:
+        """记录未通过的自检并抛出 403。"""
+        failures = {item.code: item.detail for item in report.failures}
+        codes = ", ".join(failures)
+        self._reject(
+            stream_id,
+            actor,
+            action,
+            before,
+            ErrorCode.PERMISSION_DENIED,
+            f"preflight failed: {codes}",
+            details={
+                "failed_checks": failures,
+                "permit_number": facts.push_permit_number,
+            },
+        )
+        raise ApiError(
+            ErrorCode.PERMISSION_DENIED,
+            "preflight failed",
+            details={"failed_checks": failures},
+        )
+
     def _reject(
         self,
         stream_id: str,
         actor: str,
         action: str,
         before: dict[str, Any],
-        exc: Exception,
+        code: ErrorCode,
+        message: str,
+        *,
+        details: dict[str, Any] | None = None,
     ) -> None:
         """记录被拒绝的场次操作。"""
+        after: dict[str, Any] = {"error": code.value, "message": message}
+        if details:
+            after.update(details)
         self._record(
             stream_id,
             actor,
             f"{action}.rejected",
             before,
-            {"error": "STATE_CONFLICT", "message": str(exc)},
+            after,
         )
 
     def _record(

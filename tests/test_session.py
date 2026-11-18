@@ -30,6 +30,7 @@ def _facts(**overrides: object) -> PreflightFacts:
         "rtmp_credential_ready": True,
         "rtmp_reachable": True,
         "push_permit_until": NOW + timedelta(days=30),
+        "push_permit_number": "permit_001",
         "live2d_model_ready": True,
         "cubism_license_recorded": True,
     }
@@ -78,6 +79,15 @@ def test_preflight_requires_push_permit_and_cubism_record() -> None:
     codes = {item.code for item in report.failures}
 
     assert codes == {"push_permit", "cubism_license"}
+
+
+def test_preflight_requires_push_permit_number() -> None:
+    """许可有效期存在但未登记编号仍禁止开播。"""
+    report = run_preflight(_facts(push_permit_number=" "), now=NOW)
+
+    codes = {item.code for item in report.failures}
+
+    assert codes == {"push_permit"}
 
 
 def test_preflight_treats_naive_datetime_as_utc() -> None:

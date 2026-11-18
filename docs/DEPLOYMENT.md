@@ -133,11 +133,31 @@ WAF + SLB（固定公网 IP）
 
 ### 7.6 平台推流许可与限流
 
-1. 开播前自检必须校验云端推流许可/报备记录有效（LIV-07）；
+**许可登记（GOV-05）**：取得平台书面许可/报备材料后归档，并填写以下配置；缺任一项，开播自检 `push_permit` 不通过，禁止开播：
+
+| 变量 | 说明 | 必填 |
+| --- | --- | --- |
+| `PUSH_PERMIT_NUMBER` | 许可/报备编号，审计引用 | 是 |
+| `PUSH_PERMIT_EXPIRES_AT` | 到期时间（ISO-8601，含时区） | 是 |
+| `PUSH_PERMIT_EGRESS_IPS` | 登记的固定出口 IP，逗号分隔 | 是 |
+| `PUSH_PERMIT_ARCHIVE_REF` | 归档引用（工单/合同/文档路径） | 是 |
+| `PUSH_PERMIT_ACCOUNT_ID` | 绑定平台账号；留空覆盖全部账号 | 否 |
+| `PUSH_PERMIT_ISSUED_AT` | 生效时间 | 否 |
+| `PUSH_PERMIT_PARAMS` / `PUSH_PERMIT_RESTRICTIONS` | 推流参数与附加限制摘要 | 否 |
+
+其余自检项由 `LIV-07` 事实源提供：授权到期（`PLATFORM_AUTH_EXPIRES_AT`、`AVATAR_LICENSE_EXPIRES_AT`、`VOICE_LICENSE_EXPIRES_AT`）、`AIGC_LABEL_ENABLED`、`SAFETY_HEALTHY`、`RTMP_CREDENTIAL_READY`、`LIVE2D_MODEL_READY`、`CUBISM_LICENSE_RECORDED`；推流连通性默认按 `RTMP_URL` 做 TCP 探测（`RTMP_PROBE_TIMEOUT_S`），可用 `RTMP_REACHABLE` 覆盖。未接入真实探测的开关仅用于 staging，生产需替换为子系统实时查询。
+
+1. 开播与恢复开播都会执行全部自检，任一失败返回 403 并列出 `failed_checks`；
 2. 监测推流返回码、码率骤降、平台警告与观众端异常反馈；
 3. 出现限流迹象：先降码率/帧率，再降低互动频率，不盲目重连；
 4. 连续失败：停止推流并人工接管，保留日志与截图（不含推流 key）；
 5. 每次事件更新 `incidents`，并在周会复核是否触发架构 B 回退条件。
+
+**架构 B 回退条件与动作**（回退到自建推流机/本地推流）：
+
+1. 触发条件：平台拒绝许可/报备、出口 IP 被限制、连续 3 次开播自检或推流失败且 24h 内无法恢复；
+2. 动作：停止云端推流，将 `RTMP_URL` 切换到自建推流机，保留场次配置快照与审计；
+3. 回退前由负责人确认成本与合规影响，回退后 24h 内复盘并更新 ADR 0003。
 
 ## 8. 备份与恢复
 

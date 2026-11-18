@@ -196,7 +196,7 @@ uv run pytest              # 单测 + 覆盖率（门槛 80%）
 
 约定：依赖只通过 `uv add` 变更并提交 `uv.lock`；不提交 `.venv`、`.env` 与任何真实凭证。
 
-控制台联调：运行 `uv run uvicorn services.orchestrator.main:app --port 8000`，先 `POST /v1/streams` 创建场次，打开 `http://127.0.0.1:8000/console` 填写场次与操作人后即可开播、接管、暂停、静音、切人设与播放预设话术；设置 `CONTROL_DEMO_STREAM_ID=st_demo` 会额外登记一个演示场次。
+控制台联调：运行 `uv run uvicorn services.orchestrator.main:app --port 8000`，先 `POST /v1/streams` 创建场次，打开 `http://127.0.0.1:8000/console` 填写场次与操作人后即可开播、接管、暂停、静音、切人设与播放预设话术；开播自检默认 fail-closed，需按 `.env.example` 的「开播自检」填写许可与授权事实（缺任一项开播返回 403）。设置 `CONTROL_DEMO_STREAM_ID=st_demo` 会额外登记一个演示场次。
 
 ## 模块职责
 

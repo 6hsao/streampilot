@@ -35,6 +35,7 @@ class PreflightFacts:
         rtmp_credential_ready: 推流凭据是否就绪。
         rtmp_reachable: 推流连通性是否通过。
         push_permit_until: 云端推流许可到期时间。
+        push_permit_number: 云端推流许可/报备编号。
         live2d_model_ready: Live2D 模型与动作集是否可用。
         cubism_license_recorded: Cubism 商用许可判定是否归档。
     """
@@ -47,6 +48,7 @@ class PreflightFacts:
     rtmp_credential_ready: bool = False
     rtmp_reachable: bool = False
     push_permit_until: datetime | None = None
+    push_permit_number: str = ""
     live2d_model_ready: bool = False
     cubism_license_recorded: bool = False
 
@@ -101,6 +103,18 @@ def _licence_ok(expires: datetime | None, now: datetime) -> tuple[bool, str]:
     return True, ""
 
 
+def _permit_ok(
+    expires: datetime | None, number: str, now: datetime
+) -> tuple[bool, str]:
+    """判断推流许可是否有效且已登记编号。"""
+    ok, detail = _licence_ok(expires, now)
+    if not ok:
+        return ok, detail
+    if not number.strip():
+        return False, "missing push permit number"
+    return True, ""
+
+
 def run_preflight(
     facts: PreflightFacts, *, now: datetime | None = None
 ) -> PreflightReport:
@@ -137,7 +151,9 @@ def run_preflight(
         facts.rtmp_reachable,
         "" if facts.rtmp_reachable else "rtmp endpoint is unreachable",
     )
-    checks["push_permit"] = _licence_ok(facts.push_permit_until, moment)
+    checks["push_permit"] = _permit_ok(
+        facts.push_permit_until, facts.push_permit_number, moment
+    )
     checks["live2d_model"] = (
         facts.live2d_model_ready,
         "" if facts.live2d_model_ready else "live2d model is not ready",

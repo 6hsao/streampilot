@@ -1,6 +1,7 @@
 """场次管理器的单元测试。"""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -17,12 +18,15 @@ from streampilot.orchestrator.state import (
     SessionState,
     SessionStateMachine,
 )
+from streampilot.session.facts import FactSource, StaticFactSource
 from streampilot.session.manager import SessionManager
 from streampilot.session.models import (
     SessionConfig,
     SessionStatus,
     StopReason,
 )
+from streampilot.session.permit import PermitRegistry, PushPermit
+from streampilot.session.preflight import PreflightFacts
 from streampilot.session.views import (
     CreateStreamRequest,
     ResumeStreamRequest,
@@ -32,6 +36,53 @@ from streampilot.session.views import (
 )
 
 NOW = datetime(2026, 1, 1, 12, 0, 0, tzinfo=UTC)
+
+
+def _permit_registry() -> PermitRegistry:
+    """构造含一份有效许可的登记表。"""
+    registry = PermitRegistry()
+    registry.register(
+        PushPermit(
+            number="permit_001",
+            expires_at=NOW + timedelta(days=30),
+            egress_ips=("203.0.113.10",),
+            archive_ref="GOV-05/2026-001",
+        )
+    )
+    return registry
+
+
+def _passing_source(**overrides: Any) -> StaticFactSource:
+    """构造全部通过的事实源。"""
+    base: dict[str, Any] = {
+        "platform_authorized_until": NOW + timedelta(days=30),
+        "avatar_license_until": NOW + timedelta(days=30),
+        "voice_license_until": NOW + timedelta(days=30),
+        "aigc_label_enabled": True,
+        "safety_probe": lambda: True,
+        "rtmp_credential_probe": lambda: True,
+        "rtmp_reachable_probe": lambda: True,
+        "live2d_model_ready": True,
+        "cubism_license_recorded": True,
+        "permits": _permit_registry(),
+    }
+    base.update(overrides)
+    return StaticFactSource(**base)
+
+
+class ToggleFacts:
+    """可切换通过/失败的事实源，用于验证恢复前复检。"""
+
+    def __init__(self) -> None:
+        self.ok = True
+        self._source = _passing_source(
+            safety_probe=lambda: self.ok,
+            rtmp_credential_probe=lambda: self.ok,
+        )
+
+    def collect(self, stream_id: str, config: SessionConfig) -> PreflightFacts:
+        """返回当前模式下的自检事实。"""
+        return self._source.collect(stream_id, config)
 
 
 class FakeSink:
@@ -68,7 +119,7 @@ class FakeSink:
 class Harness:
     """测试装置。"""
 
-    def __init__(self) -> None:
+    def __init__(self, facts: FactSource | None = None) -> None:
         self.audit = InMemoryAuditStore()
         self.control = ControlService(
             audit=self.audit,
@@ -76,11 +127,13 @@ class Harness:
             clock=lambda: NOW,
         )
         self.sinks: dict[str, FakeSink] = {}
+        self.toggle = ToggleFacts()
         self.manager = SessionManager(
             control=self.control,
             audit=self.audit,
             clock=lambda: NOW,
             runtime_factory=self._factory,
+            facts=facts or self.toggle,
         )
 
     def _factory(
@@ -187,6 +240,89 @@ def test_stop_with_abnormal_reason_code() -> None:
     assert view.stop_detail == "rtmp disconnected"
     assert view.ended_at == NOW
     assert harness.control.snapshot(stream_id).state is (SessionState.ENDED)
+
+
+def test_start_requires_preflight_pass() -> None:
+    """自检失败阻断开播并返回原因，修复后可再次开播。"""
+    harness = Harness()
+    stream_id = harness.create().stream_id
+    harness.toggle.ok = False
+
+    with pytest.raises(ApiError) as excinfo:
+        harness.manager.start(
+            stream_id,
+            request=StartStreamRequest(),
+            operator="op_1",
+        )
+
+    assert excinfo.value.code is ErrorCode.PERMISSION_DENIED
+    failed = excinfo.value.details["failed_checks"]
+    assert {"safety_health", "rtmp_credential"} <= set(failed)
+    assert "session.start.rejected" in harness.actions(stream_id)
+    assert harness.control.snapshot(stream_id).state is SessionState.IDLE
+
+    harness.toggle.ok = True
+    view = harness.manager.start(
+        stream_id,
+        request=StartStreamRequest(),
+        operator="op_1",
+    )
+
+    assert view.status is SessionStatus.LIVE
+
+
+def test_start_requires_push_permit() -> None:
+    """未登记推流许可时开播被拒并给出原因码。"""
+    harness = Harness(
+        facts=_passing_source(permits=PermitRegistry()),
+    )
+    stream_id = harness.create().stream_id
+
+    with pytest.raises(ApiError) as excinfo:
+        harness.manager.start(
+            stream_id,
+            request=StartStreamRequest(),
+            operator="op_1",
+        )
+
+    assert excinfo.value.code is ErrorCode.PERMISSION_DENIED
+    assert "push_permit" in excinfo.value.details["failed_checks"]
+
+
+def test_resume_rechecks_preflight() -> None:
+    """恢复开播重新自检，未通过保持收播状态。"""
+    harness = Harness()
+    stream_id = harness.create().stream_id
+    harness.manager.start(
+        stream_id,
+        request=StartStreamRequest(),
+        operator="op_1",
+    )
+    harness.manager.stop(
+        stream_id,
+        request=StopStreamRequest(reason=StopReason.OPERATOR),
+        operator="op_1",
+    )
+    harness.toggle.ok = False
+
+    with pytest.raises(ApiError) as excinfo:
+        harness.manager.resume(
+            stream_id,
+            request=ResumeStreamRequest(reason="继续直播"),
+            operator="op_1",
+        )
+
+    assert excinfo.value.code is ErrorCode.PERMISSION_DENIED
+    assert "session.resume.rejected" in harness.actions(stream_id)
+
+    harness.toggle.ok = True
+    view = harness.manager.resume(
+        stream_id,
+        request=ResumeStreamRequest(reason="继续直播"),
+        operator="op_1",
+    )
+
+    assert view.status is SessionStatus.LIVE
 
 
 def test_stop_before_start_is_rejected() -> None:

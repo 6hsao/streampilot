@@ -167,7 +167,7 @@ signature = hex(hmac_sha256(secret, canonical))
 
 人设已在创建时固化，开播请求不再传 `persona_version_id`；`expected_start_at` 仅作审计记录，可省略。
 
-前置校验（任一失败返回 403/409 并给出原因）：
+前置校验（任一失败返回 `403 PERMISSION_DENIED`）：
 
 1. 平台账号已授权且在有效期；
 2. 形象与音色授权有效；
@@ -177,7 +177,24 @@ signature = hex(hmac_sha256(secret, canonical))
 6. **云端推流许可/报备记录在有效期内**；
 7. **Live2D 模型与动作集可用，Cubism 商用许可判定已归档**。
 
-> 当前实现由调用方传入自检结果（缺省视为通过），真实校验随 `LIV-07` 接入；非 `created` 状态开播返回 `409 STATE_CONFLICT`。
+> 自检由服务端强制执行：授权到期时间、AIGC 标识、内容安全健康、RTMP 凭据与 TCP 连通性、推流许可（编号 + 有效期）、Live2D/Cubism 许可。任一项失败返回 `403 PERMISSION_DENIED`，`details.failed_checks` 给出逐项原因，并写入 `session.start.rejected` 审计；非 `created` 状态返回 `409 STATE_CONFLICT`。
+
+失败示例：
+
+```json
+{
+  "error": {
+    "code": "PERMISSION_DENIED",
+    "message": "preflight failed",
+    "details": {
+      "failed_checks": {
+        "push_permit": "missing push permit record",
+        "rtmp_credential": "missing rtmp credential"
+      }
+    }
+  }
+}
+```
 
 ### 4.3 `POST /v1/streams/{id}/stop`
 
@@ -198,6 +215,7 @@ signature = hex(hmac_sha256(secret, canonical))
 ```
 
 - 仅 `stopped` 状态可恢复；复用原配置快照，重建控制面状态机（回到 `idle`），清空 `stop_reason` / `stop_detail`；
+- 恢复开播同样执行完整自检，未通过返回 `403 PERMISSION_DENIED` 并保持 `stopped`；
 - 非 `stopped` 状态恢复返回 `409 STATE_CONFLICT`。
 
 ### 4.5 `POST /v1/streams/{id}/control`
