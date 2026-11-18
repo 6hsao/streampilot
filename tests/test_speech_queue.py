@@ -239,6 +239,20 @@ class _FakeRedis:
     def hgetall(self, key: str) -> dict[str, int]:
         return dict(self.hashes.get(key, {}))
 
+    def delete(self, *keys: str) -> int:
+        removed = 0
+        for key in keys:
+            for store in (
+                self.zsets,
+                self.sets,
+                self.values,
+                self.hashes,
+            ):
+                if key in store:
+                    del store[key]
+                    removed += 1
+        return removed
+
 
 def _redis_queue(
     *,
@@ -254,6 +268,33 @@ def _redis_queue(
         max_size=max_size,
         cooldown_ms=cooldown_ms,
         ttl_ms=ttl_ms,
+    )
+
+
+def test_inmemory_clear_empties_queue() -> None:
+    """清空队列后不再出队，并返回清除数量。"""
+    queue = _queue()
+
+    queue.enqueue(queue.make_turn("c_1", "a", 1_000))
+    queue.enqueue(queue.make_turn("c_2", "b", 1_000))
+
+    assert queue.clear() == 2
+    assert queue.stats().size == 0
+    assert queue.dequeue(1_000) is None
+
+
+def test_redis_queue_clear_empties_queue_and_ids() -> None:
+    """Redis 队列清空后可重新入队同一条消息。"""
+    queue = _redis_queue()
+
+    queue.enqueue(queue.make_turn("c_1", "a", 1_000))
+    queue.enqueue(queue.make_turn("c_2", "b", 1_000))
+
+    assert queue.clear() == 2
+    assert queue.stats().size == 0
+    assert queue.dequeue(1_000) is None
+    assert queue.enqueue(queue.make_turn("c_1", "a", 1_000)) is (
+        EnqueueResult.ACCEPTED
     )
 
 

@@ -150,6 +150,13 @@ class SpeechQueue(Protocol):
         """返回当前队列指标。"""
         ...
 
+    def clear(self) -> int:
+        """清空待发声，返回被清除的数量。
+
+        人工接管或释放接管时调用，确保旧回复不会在恢复后补发。
+        """
+        ...
+
 
 class _QueueBase:
     """队列公共逻辑：参数校验、冷却与指标计数。
@@ -276,6 +283,13 @@ class InMemorySpeechQueue(_QueueBase):
         snapshot.size = len(self._turns)
         return snapshot
 
+    def clear(self) -> int:
+        """清空待发声，返回被清除的数量。"""
+        removed = len(self._turns)
+        self._turns.clear()
+        self._heap.clear()
+        return removed
+
 
 class RedisSpeechQueue(_QueueBase):
     """基于 Redis ZSet 的发言队列，供多实例共享单场次队列。
@@ -381,3 +395,9 @@ class RedisSpeechQueue(_QueueBase):
             setattr(snapshot, name, int(counters.get(name, 0)))
         snapshot.size = int(cast(Any, self._client.zcard(self._turns_key)))
         return snapshot
+
+    def clear(self) -> int:
+        """清空待发声，返回被清除的数量。"""
+        removed = int(cast(Any, self._client.zcard(self._turns_key)))
+        self._client.delete(self._turns_key, self._ids_key)
+        return removed

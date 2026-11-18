@@ -52,6 +52,8 @@ Orchestrator → LLM GW(stream) → 句级 chunk
   → 全量操作写 audit_logs 与 takeovers
 ```
 
+实现：`src/streampilot/control/service.py` 的 `ControlService` 提供接管/释放、暂停/恢复、静音、切人设、预设话术与重连；`ControlSink` 向 TTS/Renderer/Streamer 下发静默与恢复。`dequeue()` 是编排器唯一取话入口，接管、暂停、静音或熔断时直接返回空，保证接管期间 AI 完全静默。审计与接管记录通过 `AuditStore` / `TakeoverStore` 落库（首发为进程内实现）。释放接管时若接管前处于熔断，恢复到 `circuit_open`，仍需人工确认才能发声。控制台页面由控制面服务在 `/console` 托管，只调用 REST 接口。
+
 ### 3.3 云端推流与凭据流
 
 ```

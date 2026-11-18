@@ -111,6 +111,9 @@ signature = hex(hmac_sha256(secret, canonical))
 | GET | `/v1/streams/{id}/state` | 实时状态 |
 | POST | `/v1/streams/{id}/control` | 运行控制 |
 | POST | `/v1/streams/{id}/takeover` | 人工接管/释放 |
+| GET | `/v1/streams/{id}/audit` | 操作审计 |
+
+> 控制面请求需携带 `X-Operator-Id` 作为操作人标识（OIDC 接入前替代 JWT 主体），缺失返回 `401 UNAUTHENTICATED`。
 
 ### 4.1 `POST /v1/streams/{id}/start`
 
@@ -140,13 +143,58 @@ signature = hex(hmac_sha256(secret, canonical))
 
 > `reconnect` 仅由控制台或运维调用，用于云端 Streamer 重连；不会重新获取推流凭据。
 
+约束：
+
+- `params` 按动作取用：`switch_persona` 需 `persona_version_id`，`say_template` 需 `template_id`，缺失返回 `400 INVALID_ARGUMENT`；
+- `pause` 保留待发声队列但停止出队；`mute` 期间 AI 与预设话术都不出声；
+- 接管期间允许切人设、预设话术与重连，AI 自动回复完全静默；
+- 所有动作（含被拒绝的尝试）写入 `audit_logs`。
+
+响应（`latency_ms` 为服务端处理耗时，用于核对接管时效）：
+
+```json
+{
+  "stream_id": "st_01J...",
+  "action": "pause",
+  "state": "takeover",
+  "applied": true,
+  "ai_silent": true,
+  "latency_ms": 0.8
+}
+```
+
 ### 4.3 `POST /v1/streams/{id}/takeover`
 
 ```json
 {"action": "take | release", "reason": "敏感话题升级处理"}
 ```
 
-约束：`take` 后 AI 停止消费队列并静默；`release` 需填写处置结论。
+约束：
+
+- `take` 后 AI 停止消费队列、清空待发声并静默，Streamer 保持推流；
+- `release` 需在 `reason` 中填写处置结论；
+- 接管期间重复 `take` 返回 `409 ALREADY_TAKEOVER`；未接管时 `release` 返回 `409 STATE_CONFLICT`；
+- 若接管前处于熔断，释放后恢复到熔断状态，仍需人工确认后才能发声。
+
+响应：
+
+```json
+{
+  "stream_id": "st_01J...",
+  "action": "take",
+  "state": "takeover",
+  "takeover": {
+    "active": true,
+    "operator_id": "op_01J...",
+    "reason": "敏感话题升级处理",
+    "started_at": "2026-01-01T12:00:00Z",
+    "conclusion": null
+  },
+  "cleared_queue": 3,
+  "ai_silent": true,
+  "latency_ms": 0.9
+}
+```
 
 ### 4.4 `GET /v1/streams/{id}/state`
 
@@ -162,6 +210,20 @@ signature = hex(hmac_sha256(secret, canonical))
   "takeover": {"active": false, "operator_id": null}
 }
 ```
+
+> 控制面当前实现返回 `state`、`queue_depth`、`paused`、`muted`、`ai_silent`、`persona_version_id`、`templates` 与 `takeover`；`latency`/`safety`/`stream` 由对应服务接入后补齐。
+
+### 4.5 `GET /v1/streams/{id}/audit`
+
+返回时间倒序的操作审计，`limit` 默认 50、上限 200。被拒绝的操作以 `.rejected` 结尾，失败原因在 `after.error`：
+
+```json
+{"entries": [{"id": "01J...", "org_id": "org_01J...", "actor_id": "op_01J...", "action": "takeover.take", "target": "st_01J...", "before": {"state": "speaking", "queue_depth": 3}, "after": {"state": "takeover", "queue_cleared": 3}, "created_at": "2026-01-01T12:00:00Z"}]}
+```
+
+### 4.6 控制台页面
+
+控制面服务在 `/console` 托管零构建控制台页面，只调用本节接口。PLAN 中的 React SPA 落地后复用同一 REST 契约，无需改动服务端。
 
 ## 5. 安全、生成与语音（内部）
 

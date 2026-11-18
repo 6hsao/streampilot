@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>StreamPilot · 人工接管控制台</title>
+<style>
+  :root {
+    --bg: #0b1220;
+    --panel: #131c2e;
+    --line: #243149;
+    --text: #e6edf7;
+    --muted: #8ca0bd;
+    --ok: #34d399;
+    --warn: #fbbf24;
+    --danger: #f87171;
+    --accent: #38bdf8;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    padding: 18px 24px;
+    border-bottom: 1px solid var(--line);
+    background: #0e1728;
+  }
+  header h1 { margin: 0; font-size: 18px; letter-spacing: 1px; }
+  header .sub { color: var(--muted); }
+  header .clock { margin-left: auto; color: var(--muted); }
+  main {
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 20px 24px 48px;
+    display: grid;
+    gap: 16px;
+  }
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 16px 18px;
+  }
+  .panel h2 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    color: var(--muted);
+    font-weight: 600;
+    letter-spacing: 1px;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 12px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .card .k { color: var(--muted); font-size: 12px; }
+  .card strong { font-size: 18px; }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .row:last-child { margin-bottom: 0; }
+  label { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
+  input, select {
+    background: #0b1424;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 7px 9px;
+    min-width: 180px;
+  }
+  button {
+    background: #1c2a44;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.primary { background: #0e7490; border-color: #0e7490; }
+  button.danger { background: #7f1d1d; border-color: #b91c1c; }
+  .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  .error {
+    margin: 10px 0 0;
+    color: var(--danger);
+    border: 1px solid #7f1d1d;
+    background: #2a1116;
+    border-radius: 6px;
+    padding: 8px 10px;
+  }
+  .ok { color: var(--ok); }
+  .warn { color: var(--warn); }
+  .bad { color: var(--danger); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td {
+    text-align: left;
+    padding: 7px 8px;
+    border-bottom: 1px solid var(--line);
+  }
+  th { color: var(--muted); font-weight: 600; }
+  td.mono { font-family: Consolas, monospace; }
+  small { color: var(--muted); font-weight: 400; }
+</style>
+</head>
+<body>
+<header>
+  <h1>StreamPilot</h1>
+  <span class="sub">人工接管控制台</span>
+  <span id="clock" class="clock"></span>
+</header>
+<main>
+  <section class="panel">
+    <div class="row">
+      <label>场次 ID
+        <input id="stream" value="st_demo" autocomplete="off">
+      </label>
+      <label>操作人
+        <input id="operator" placeholder="operator_id" autocomplete="off">
+      </label>
+      <button id="connect" class="primary">连接</button>
+    </div>
+    <p class="hint">
+      接管后 AI 停止消费队列并静默，推流保持；释放需填写处置结论。
+    </p>
+    <p id="error" class="error" hidden></p>
+  </section>
+
+  <section class="grid">
+    <div class="card"><span class="k">场次状态</span>
+      <strong id="state">-</strong></div>
+    <div class="card"><span class="k">AI 静默</span>
+      <strong id="silent">-</strong></div>
+    <div class="card"><span class="k">待发声</span>
+      <strong id="depth">-</strong></div>
+    <div class="card"><span class="k">接管人</span>
+      <strong id="takeover">-</strong></div>
+  </section>
+
+  <section class="panel">
+    <h2>接管</h2>
+    <div class="row">
+      <button id="take" class="danger">立即接管</button>
+      <button id="release">释放接管</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>运行控制</h2>
+    <div class="row">
+      <button data-action="pause">暂停 AI</button>
+      <button data-action="resume">恢复 AI</button>
+      <button data-action="mute">静音</button>
+      <button data-action="unmute">取消静音</button>
+      <button data-action="reconnect">重连推流</button>
+    </div>
+    <div class="row">
+      <label>人设版本
+        <input id="persona" placeholder="pv_..." autocomplete="off">
+      </label>
+      <button id="switch">切换人设</button>
+    </div>
+    <div class="row">
+      <label>预设话术
+        <select id="template"></select>
+      </label>
+      <button id="say">播放话术</button>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>操作审计 <small id="audit-count"></small></h2>
+    <table>
+      <thead>
+        <tr><th>时间</th><th>操作人</th><th>动作</th><th>结果</th></tr>
+      </thead>
+      <tbody id="audit"></tbody>
+    </table>
+  </section>
+</main>
+<script>
+  const $ = (id) => document.getElementById(id);
+  let streamId = '';
+  let operatorId = '';
+
+  function setError(message) {
+    const box = $('error');
+    if (!message) {
+      box.hidden = true;
+      box.textContent = '';
+      return;
+    }
+    box.hidden = false;
+    box.textContent = message;
+  }
+
+  async function api(path, options = {}) {
+    const response = await fetch(path, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Operator-Id': operatorId,
+      },
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const err = body.error || {};
+      throw new Error(err.code ? `${err.code}: ${err.message}` : '请求失败');
+    }
+    return body;
+  }
+
+  function render(snapshot) {
+    $('state').textContent = snapshot.state;
+    const silent = $('silent');
+    silent.textContent = snapshot.ai_silent ? '是' :
+      (snapshot.paused || snapshot.muted ? '是' : '否');
+    silent.className = snapshot.ai_silent ? 'ok' : 'warn';
+    $('depth').textContent = String(snapshot.queue_depth);
+    const takeover = $('takeover');
+    if (snapshot.takeover && snapshot.takeover.active) {
+      takeover.textContent = snapshot.takeover.operator_id || '已接管';
+      takeover.className = 'bad';
+    } else {
+      takeover.textContent = '未接管';
+      takeover.className = 'ok';
+    }
+    const select = $('template');
+    const current = select.value;
+    select.innerHTML = '';
+    for (const id of snapshot.templates) {
+      const option = document.createElement('option');
+      option.value = id;
+      option.textContent = id;
+      select.appendChild(option);
+    }
+    if (snapshot.templates.includes(current)) {
+      select.value = current;
+    }
+    if (snapshot.persona_version_id) {
+      $('persona').value = snapshot.persona_version_id;
+    }
+  }
+
+  async function refresh() {
+    if (!streamId) return;
+    const [snapshot, audit] = await Promise.all([
+      api(`/v1/streams/${streamId}/state`),
+      api(`/v1/streams/${streamId}/audit?limit=20`),
+    ]);
+    render(snapshot);
+    renderAudit(audit.entries || []);
+    setError('');
+  }
+
+  function renderAudit(entries) {
+    const body = $('audit');
+    body.innerHTML = '';
+    $('audit-count').textContent = `最近 ${entries.length} 条`;
+    if (!entries.length) {
+      const row = document.createElement('tr');
+      const cell = document.createElement('td');
+      cell.colSpan = 4;
+      cell.textContent = '暂无操作记录';
+      row.appendChild(cell);
+      body.appendChild(row);
+      return;
+    }
+    for (const entry of entries) {
+      const row = document.createElement('tr');
+      const rejected = entry.action.endsWith('.rejected');
+      const values = [
+        new Date(entry.created_at).toLocaleTimeString(),
+        entry.actor_id,
+        entry.action,
+        rejected ? '拒绝' : '成功',
+      ];
+      for (const value of values) {
+        const cell = document.createElement('td');
+        cell.textContent = value;
+        if (value === '拒绝') cell.className = 'bad';
+        row.appendChild(cell);
+      }
+      body.appendChild(row);
+    }
+  }
+
+  async function connect() {
+    streamId = $('stream').value.trim();
+    operatorId = $('operator').value.trim();
+    if (!streamId || !operatorId) {
+      setError('场次 ID 与操作人都不能为空');
+      return;
+    }
+    localStorage.setItem('sp.operator', operatorId);
+    try {
+      await refresh();
+    } catch (error) {
+      setError(error.message);
+    }
+  }
+
+  async function takeover(action, reason) {
+    await api(`/v1/streams/${streamId}/takeover`, {
+      method: 'POST',
+      body: JSON.stringify({ action, reason }),
+    });
+    await refresh();
+  }
+
+  async function control(action, params = {}) {
+    await api(`/v1/streams/${streamId}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ action, params, reason: 'console' }),
+    });
+    await refresh();
+  }
+
+  function guard(task) {
+    return async () => {
+      if (!streamId || !operatorId) {
+        setError('请先填写场次与操作人并点击连接');
+        return;
+      }
+      try {
+        await task();
+        setError('');
+      } catch (error) {
+        setError(error.message);
+      }
+    };
+  }
+
+  $('connect').addEventListener('click', connect);
+  $('take').addEventListener('click', guard(async () => {
+    const reason = prompt('接管原因', '敏感话题升级处理');
+    if (!reason) return;
+    await takeover('take', reason);
+  }));
+  $('release').addEventListener('click', guard(async () => {
+    const conclusion = prompt('处置结论（必填）');
+    if (!conclusion) return;
+    await takeover('release', conclusion);
+  }));
+  document.querySelectorAll('[data-action]').forEach((button) => {
+    button.addEventListener('click', guard(async () => {
+      await control(button.dataset.action);
+    }));
+  });
+  $('switch').addEventListener('click', guard(async () => {
+    const version = $('persona').value.trim();
+    if (!version) throw new Error('请填写人设版本 ID');
+    await control('switch_persona', { persona_version_id: version });
+  }));
+  $('say').addEventListener('click', guard(async () => {
+    const template = $('template').value;
+    if (!template) throw new Error('请选择预设话术');
+    await control('say_template', { template_id: template });
+  }));
+
+  $('operator').value = localStorage.getItem('sp.operator') || '';
+  const params = new URLSearchParams(location.search);
+  if (params.get('stream')) {
+    $('stream').value = params.get('stream');
+  }
+  setInterval(() => {
+    $('clock').textContent = new Date().toLocaleString();
+  }, 1000);
+  setInterval(() => {
+    if (streamId && operatorId) refresh().catch(() => {});
+  }, 2000);
+</script>
+</body>
+</html>
