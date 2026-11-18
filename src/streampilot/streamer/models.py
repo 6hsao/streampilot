@@ -105,6 +105,25 @@ class EncoderProfile:
             return None
         return replace(self, bitrate_kbps=target)
 
+    def next_higher(
+        self, ceiling_kbps: int | None = None
+    ) -> EncoderProfile | None:
+        """升一档码率，不超过基准或全局上限。
+
+        Args:
+            ceiling_kbps: 允许回补到的上限，缺省为全局上限。
+
+        Returns:
+            新的档位，或 ``None`` 表示已到上限。
+        """
+        ceiling = MAX_BITRATE_KBPS
+        if ceiling_kbps is not None:
+            ceiling = min(ceiling, ceiling_kbps)
+        target = min(ceiling, self.bitrate_kbps + BITRATE_STEP_KBPS)
+        if target <= self.bitrate_kbps:
+            return None
+        return replace(self, bitrate_kbps=target)
+
 
 @dataclass(frozen=True)
 class ProgressSnapshot:

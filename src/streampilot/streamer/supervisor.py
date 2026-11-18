@@ -106,7 +106,17 @@ class StreamerSupervisor:
     @property
     def profile(self) -> EncoderProfile:
         """当前编码参数。"""
-        return self._profile
+        with self._lock:
+            return self._profile
+
+    def set_profile(self, profile: EncoderProfile) -> None:
+        """更新编码参数，下一次启动生效。
+
+        运行中不打断现有推流；调用方（重连/降档逻辑）在需要立即生效时
+        先 ``stop`` 再 ``start``。
+        """
+        with self._lock:
+            self._profile = profile
 
     def start(self, target: StreamTarget) -> int:
         """启动推流进程。

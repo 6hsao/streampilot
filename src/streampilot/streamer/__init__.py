@@ -17,6 +17,14 @@ from streampilot.streamer.models import (
     StreamerState,
     StreamTarget,
 )
+from streampilot.streamer.reconnect import (
+    DEFAULT_FAILOVER_AFTER,
+    DEFAULT_STABLE_S,
+    BackoffPolicy,
+    RecoveryState,
+    StreamerControl,
+    StreamerRecovery,
+)
 from streampilot.streamer.supervisor import (
     ProcessRunner,
     StreamerError,
@@ -28,17 +36,23 @@ from streampilot.streamer.supervisor import (
 __all__ = [
     "AUDIO_PIPE",
     "BITRATE_STEP_KBPS",
+    "DEFAULT_FAILOVER_AFTER",
+    "DEFAULT_STABLE_S",
     "MAX_BITRATE_KBPS",
     "MIN_BITRATE_KBPS",
     "PROGRESS_PIPE",
     "VIDEO_PIPE",
+    "BackoffPolicy",
     "EncoderProfile",
     "InputMode",
     "ProcessRunner",
     "ProgressSnapshot",
+    "RecoveryState",
     "StreamProcess",
     "StreamTarget",
+    "StreamerControl",
     "StreamerError",
+    "StreamerRecovery",
     "StreamerState",
     "StreamerSupervisor",
     "SubprocessRunner",
