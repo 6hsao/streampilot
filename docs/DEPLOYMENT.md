@@ -205,7 +205,7 @@ RAM 用户至少拆成两个：**infra（Terraform/CLI 管理资源）** 与 **r
 | `TTS_MAX_CONCURRENCY` | 进程内合成并发上限 | `2` | 可选（默认 `2`） |
 | `FUN_ASR_MODEL` | 识别模型（非主链路） | `fun-asr` | 可选 |
 | `FUN_ASR_ENABLED` | 是否启用识别 | `false` | 可选（首发关闭） |
-| `SENSITIVE_WORD_DICT_PATH` | 本地词库目录 | `./config/sensitive_words` | 可选（内置词库默认生效） |
+| `SENSITIVE_WORD_DICT_PATH` | 本地词库文件 | `./data/safety/lexicon.yml` | 可选（内置词库默认生效） |
 | `MYSQL_DSN` | 业务库连接串（VPC 内） | `mysql+pymysql://user:password@127.0.0.1:3306/streampilot` | 必填（接入与场次） |
 | `REDIS_URL` | Redis 连接串（VPC 内） | `redis://127.0.0.1:6379/0` | 必填（接入网关/队列） |
 
