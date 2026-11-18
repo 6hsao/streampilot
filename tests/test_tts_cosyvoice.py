@@ -27,7 +27,7 @@ from streampilot.tts.models import AudioFormat, SynthesisRequest
 class _FakeTransport:
     """按脚本返回服务端消息的假通道。"""
 
-    def __init__(self, messages: Sequence[str | Exception]) -> None:
+    def __init__(self, messages: Sequence[str | bytes | Exception]) -> None:
         self._messages = list(messages)
         self.sent: list[dict[str, object]] = []
         self.closed = False
@@ -35,7 +35,7 @@ class _FakeTransport:
     def send(self, payload: str) -> None:
         self.sent.append(cast(dict[str, object], json.loads(payload)))
 
-    def recv(self) -> str:
+    def recv(self) -> str | bytes:
         if not self._messages:
             raise TTSUnavailable("no more messages")
         item = self._messages.pop(0)
@@ -138,6 +138,34 @@ def test_streams_chunks_with_offsets() -> None:
     assert transport.closed is True
     headers = cast(dict[str, str], captured["headers"])
     assert headers["Authorization"] == "Bearer test-key"
+
+
+def test_streams_binary_pcm_frames() -> None:
+    """format=pcm 时二进制帧按采样率直接换算时长。"""
+    transport = _FakeTransport(
+        [
+            _started(),
+            b"\x00" * 320,
+            b"\x00" * 160,
+            _finished(),
+        ]
+    )
+    synthesizer = _synthesizer(transport, {})
+
+    chunks = list(synthesizer.synthesize(_request()))
+
+    assert [chunk.duration_ms for chunk in chunks] == [10, 5]
+    assert [chunk.start_ms for chunk in chunks] == [0, 10]
+    assert [chunk.seq for chunk in chunks] == [0, 1]
+
+
+def test_binary_frame_before_started_is_bad_request() -> None:
+    """启动前收到二进制帧说明协议不符，按不可重试错误处理。"""
+    transport = _FakeTransport([b"\x00" * 320])
+    synthesizer = _synthesizer(transport, {})
+
+    with pytest.raises(TTSBadRequest, match="binary frame"):
+        list(synthesizer.synthesize(_request()))
 
 
 def test_request_options_are_filled_into_run_task() -> None:
@@ -258,7 +286,7 @@ class _FakeConnection:
 
 
 def test_websocket_transport_roundtrip() -> None:
-    """文本原样返回，字节帧按 UTF-8 解码。"""
+    """文本原样返回，二进制帧保持字节不做解码。"""
     connection = _FakeConnection("hello")
     transport = WebSocketTransport(connection)
 
@@ -266,7 +294,7 @@ def test_websocket_transport_roundtrip() -> None:
 
     assert connection.sent == ["ping"]
     assert transport.recv() == "hello"
-    assert WebSocketTransport(_FakeConnection(b"{}")).recv() == "{}"
+    assert WebSocketTransport(_FakeConnection(b"{}")).recv() == b"{}"
 
 
 def test_websocket_transport_maps_failures() -> None:

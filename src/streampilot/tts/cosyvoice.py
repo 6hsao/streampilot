@@ -45,15 +45,17 @@ _MAX_PREAMBLE_EVENTS = 3
 class TaskTransport(Protocol):
     """一次合成的任务通道。
 
-    实现方在收发失败时应抛出 :class:`TTSError` 子类。
+    文本帧返回 ``str``；``format=pcm`` 时服务端会直接下发二进制
+    音频帧，此时返回 ``bytes``。实现方在收发失败时应抛出
+    :class:`TTSError` 子类。
     """
 
     def send(self, payload: str) -> None:
         """发送一条文本消息。"""
         ...
 
-    def recv(self) -> str:
-        """读取一条文本消息。"""
+    def recv(self) -> str | bytes:
+        """读取一帧：JSON 文本或二进制 PCM。"""
         ...
 
     def close(self) -> None:
@@ -84,7 +86,7 @@ class WebSocketTransport:
         except (ConnectionClosed, WebSocketException, OSError) as exc:
             raise TTSUnavailable("connection closed while sending") from exc
 
-    def recv(self) -> str:
+    def recv(self) -> str | bytes:
         try:
             message = self._connection.recv(timeout=self._recv_timeout_s)
         except TimeoutError as exc:
@@ -92,7 +94,7 @@ class WebSocketTransport:
         except (ConnectionClosed, WebSocketException, OSError) as exc:
             raise TTSUnavailable("connection closed while receiving") from exc
         if isinstance(message, bytes):
-            return message.decode("utf-8", errors="replace")
+            return message
         return str(message)
 
     def close(self) -> None:
@@ -209,12 +211,19 @@ class CosyVoiceSynthesizer:
             transport.close()
 
     @staticmethod
-    def _next_event(transport: TaskTransport) -> TaskEvent:
-        """读取并解析一条事件，协议错误转为不可重试错误。"""
+    def _parse_event(raw: str) -> TaskEvent:
+        """解析一条文本事件，协议错误转为不可重试错误。"""
         try:
-            return parse_event(transport.recv())
+            return parse_event(raw)
         except ValueError as exc:
             raise TTSBadRequest("invalid tts protocol message") from exc
+
+    def _next_event(self, transport: TaskTransport) -> TaskEvent:
+        """读取下一条文本事件；启动前出现二进制帧视为协议错误。"""
+        raw = transport.recv()
+        if isinstance(raw, bytes):
+            raise TTSBadRequest("unexpected binary frame before audio")
+        return self._parse_event(raw)
 
     def _wait_started(self, transport: TaskTransport) -> None:
         """等待 ``task-started``，期间出现失败事件即报错。"""
@@ -231,11 +240,30 @@ class CosyVoiceSynthesizer:
     def _read_audio(
         self, transport: TaskTransport, sample_rate: int
     ) -> Iterator[AudioChunk]:
-        """持续读取音频分片直到任务结束。"""
+        """持续读取音频分片直到任务结束。
+
+        ``format=pcm`` 时服务端把音频放在二进制帧里，文本帧只承载
+        句子边界与结束事件；两种形状都要处理。
+        """
         seq = 0
         offset_ms = 0
         while True:
-            event = self._next_event(transport)
+            raw = transport.recv()
+            if isinstance(raw, bytes):
+                duration_ms = pcm_duration_ms(len(raw), sample_rate)
+                if duration_ms <= 0:
+                    continue
+                yield AudioChunk(
+                    seq=seq,
+                    data=raw,
+                    duration_ms=duration_ms,
+                    start_ms=offset_ms,
+                    sample_rate=sample_rate,
+                )
+                seq += 1
+                offset_ms += duration_ms
+                continue
+            event = self._parse_event(raw)
             if event.kind is TaskEventKind.FAILED:
                 raise tts_error_from_code(
                     event.error_code, event.error_message
