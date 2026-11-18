@@ -105,21 +105,67 @@ signature = hex(hmac_sha256(secret, canonical))
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/v1/streams` | 创建场次（绑定 org、persona、platform_account） |
-| POST | `/v1/streams/{id}/start` | 开播，执行合规自检 |
-| POST | `/v1/streams/{id}/stop` | 收播，落复盘任务 |
+| POST | `/v1/streams` | 创建场次并固化配置快照 |
+| POST | `/v1/streams/{id}/start` | 开播，自检通过后生效 |
+| POST | `/v1/streams/{id}/stop` | 收播，记录原因码（异常收播） |
+| POST | `/v1/streams/{id}/resume` | 恢复开播，复用配置快照并重建状态机 |
 | GET | `/v1/streams/{id}/state` | 实时状态 |
 | POST | `/v1/streams/{id}/control` | 运行控制 |
 | POST | `/v1/streams/{id}/takeover` | 人工接管/释放 |
 | GET | `/v1/streams/{id}/audit` | 操作审计 |
 
-> 控制面请求需携带 `X-Operator-Id` 作为操作人标识（OIDC 接入前替代 JWT 主体），缺失返回 `401 UNAUTHENTICATED`。
+> 控制面请求需携带 `X-Operator-Id` 作为操作人标识（OIDC 接入前替代 JWT 主体），缺失返回 `401 UNAUTHENTICATED`。场次的创建、开播、收播、恢复均写入审计（`session.create` / `session.start` / `session.stop` / `session.resume`，被拒绝时以 `.rejected` 结尾）。
 
-### 4.1 `POST /v1/streams/{id}/start`
+### 4.1 `POST /v1/streams`
+
+创建场次并**固化配置快照**：人设版本、提示词摘要、音色、形象、标题、平台账号与直播间引用在创建时确定，后续开播与恢复都复用该快照，保证事后可追溯（人设发布新版本不影响已创建场次）。
 
 ```json
-{"persona_version_id": "pv_01J...", "expected_start_at": "2026-01-01T12:00:00Z"}
+{
+  "persona_id": "p_01J...",
+  "persona_version": 3,
+  "prompt_digest": "sha256:...",
+  "voice_id": "voice_authorized_001",
+  "avatar_id": "avatar_01J...",
+  "title": "晚间答疑",
+  "platform_account_id": "acc_01J...",
+  "room_ref": "room_123456"
+}
 ```
+
+响应 `201 Created`：
+
+```json
+{
+  "stream_id": "st_01J...",
+  "session_id": "ss_01J...",
+  "status": "created",
+  "state": "idle",
+  "title": "晚间答疑",
+  "persona_id": "p_01J...",
+  "persona_version": 3,
+  "prompt_digest": "sha256:...",
+  "voice_id": "voice_authorized_001",
+  "avatar_id": "avatar_01J...",
+  "platform_account_id": "acc_01J...",
+  "room_ref": "room_123456",
+  "created_at": "2026-01-01T12:00:00Z",
+  "started_at": null,
+  "ended_at": null,
+  "stop_reason": null,
+  "stop_detail": ""
+}
+```
+
+`status` 为场次生命周期（`created` / `live` / `stopped`），`state` 为控制面状态机实时值（`idle` / `interacting` / `speaking` / `cooldown` / `circuit_open` / `takeover` / `ended`）。
+
+### 4.2 `POST /v1/streams/{id}/start`
+
+```json
+{"expected_start_at": "2026-01-01T12:00:00Z"}
+```
+
+人设已在创建时固化，开播请求不再传 `persona_version_id`；`expected_start_at` 仅作审计记录，可省略。
 
 前置校验（任一失败返回 403/409 并给出原因）：
 
@@ -131,7 +177,30 @@ signature = hex(hmac_sha256(secret, canonical))
 6. **云端推流许可/报备记录在有效期内**；
 7. **Live2D 模型与动作集可用，Cubism 商用许可判定已归档**。
 
-### 4.2 `POST /v1/streams/{id}/control`
+> 当前实现由调用方传入自检结果（缺省视为通过），真实校验随 `LIV-07` 接入；非 `created` 状态开播返回 `409 STATE_CONFLICT`。
+
+### 4.3 `POST /v1/streams/{id}/stop`
+
+```json
+{"reason": "upstream", "detail": "rtmp disconnected"}
+```
+
+- `reason` 取值：`operator`（人工下播，缺省）/ `compliance`（合规处置）/ `upstream`（上游断流）/ `timeout`（超时）；
+- `detail` 为具体说明，长度 ≤ 255；
+- 收播后场次状态为 `stopped`、控制面状态机进入 `ended`，待发声队列清空并通知下游静默；
+- 接管期间收播会同时结束接管记录，结论记为 `stream ended: {reason}`；
+- 非 `live` 状态收播返回 `409 STATE_CONFLICT`，并写入 `session.stop.rejected` 审计。
+
+### 4.4 `POST /v1/streams/{id}/resume`
+
+```json
+{"reason": "推流地址已更新"}
+```
+
+- 仅 `stopped` 状态可恢复；复用原配置快照，重建控制面状态机（回到 `idle`），清空 `stop_reason` / `stop_detail`；
+- 非 `stopped` 状态恢复返回 `409 STATE_CONFLICT`。
+
+### 4.5 `POST /v1/streams/{id}/control`
 
 ```json
 {
@@ -163,7 +232,7 @@ signature = hex(hmac_sha256(secret, canonical))
 }
 ```
 
-### 4.3 `POST /v1/streams/{id}/takeover`
+### 4.6 `POST /v1/streams/{id}/takeover`
 
 ```json
 {"action": "take | release", "reason": "敏感话题升级处理"}
@@ -196,7 +265,7 @@ signature = hex(hmac_sha256(secret, canonical))
 }
 ```
 
-### 4.4 `GET /v1/streams/{id}/state`
+### 4.7 `GET /v1/streams/{id}/state`
 
 ```json
 {
@@ -213,7 +282,7 @@ signature = hex(hmac_sha256(secret, canonical))
 
 > 控制面当前实现返回 `state`、`queue_depth`、`paused`、`muted`、`ai_silent`、`persona_version_id`、`templates` 与 `takeover`；`latency`/`safety`/`stream` 由对应服务接入后补齐。
 
-### 4.5 `GET /v1/streams/{id}/audit`
+### 4.8 `GET /v1/streams/{id}/audit`
 
 返回时间倒序的操作审计，`limit` 默认 50、上限 200。被拒绝的操作以 `.rejected` 结尾，失败原因在 `after.error`：
 
@@ -221,7 +290,7 @@ signature = hex(hmac_sha256(secret, canonical))
 {"entries": [{"id": "01J...", "org_id": "org_01J...", "actor_id": "op_01J...", "action": "takeover.take", "target": "st_01J...", "before": {"state": "speaking", "queue_depth": 3}, "after": {"state": "takeover", "queue_cleared": 3}, "created_at": "2026-01-01T12:00:00Z"}]}
 ```
 
-### 4.6 控制台页面
+### 4.9 控制台页面
 
 控制面服务在 `/console` 托管零构建控制台页面，只调用本节接口。PLAN 中的 React SPA 落地后复用同一 REST 契约，无需改动服务端。
 

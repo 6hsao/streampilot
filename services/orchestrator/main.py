@@ -1,6 +1,6 @@
-"""编排服务：人工接管控制面，运行时事件循环由后续任务接入。
+"""编排服务：场次管理 + 人工接管控制面。
 
-控制面的会话运行时由场次管理（LIV-06）登记；本地联调可设置
+运行时事件循环由后续任务接入；本地联调可设置
 CONTROL_DEMO_STREAM_ID 自动登记一个内存场次。
 """
 
@@ -9,7 +9,8 @@ import os
 from fastapi import FastAPI
 
 from streampilot.control.app import create_app
-from streampilot.control.service import ControlService, SessionControl
+from streampilot.control.service import ControlService
+from streampilot.control.session import SessionControl
 from streampilot.control.sink import LoggingControlSink
 from streampilot.control.store import (
     InMemoryAuditStore,
@@ -17,6 +18,8 @@ from streampilot.control.store import (
 )
 from streampilot.orchestrator.queue import InMemorySpeechQueue
 from streampilot.orchestrator.state import SessionStateMachine
+from streampilot.session.app import create_session_router
+from streampilot.session.manager import SessionManager
 
 # 本地联调用的预设话术
 DEMO_TEMPLATES = {
@@ -32,11 +35,21 @@ def build_app() -> FastAPI:
     Returns:
         可直接由 uvicorn 启动的应用。
     """
+    org_id = os.environ.get("CONTROL_ORG_ID", "org_default")
+    audit = InMemoryAuditStore()
     service = ControlService(
-        audit=InMemoryAuditStore(),
+        audit=audit,
         takeovers=InMemoryTakeoverStore(),
-        org_id=os.environ.get("CONTROL_ORG_ID", "org_default"),
+        org_id=org_id,
     )
+    manager = SessionManager(
+        control=service,
+        audit=audit,
+        org_id=org_id,
+        templates=DEMO_TEMPLATES,
+    )
+    app = create_app(service)
+    app.include_router(create_session_router(manager))
     demo_stream = os.environ.get("CONTROL_DEMO_STREAM_ID", "").strip()
     if demo_stream:
         service.register(
@@ -48,7 +61,7 @@ def build_app() -> FastAPI:
                 templates=DEMO_TEMPLATES,
             )
         )
-    return create_app(service)
+    return app
 
 
 app = build_app()

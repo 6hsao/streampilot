@@ -5,9 +5,10 @@ from datetime import datetime
 from typing import Any
 
 from streampilot.contracts import ErrorCode
+from streampilot.contracts.ids import new_id
 from streampilot.control.models import AuditEntry, TakeoverInfo
 from streampilot.control.session import SessionControl
-from streampilot.control.store import AuditStore, TakeoverStore, new_id
+from streampilot.control.store import AuditStore, TakeoverStore
 
 
 class AuditRecorder:

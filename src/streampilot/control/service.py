@@ -11,6 +11,7 @@ from time import perf_counter
 
 from streampilot.contracts import ApiError, ErrorCode
 from streampilot.control.actions import apply_control
+from streampilot.control.lifecycle import LifecycleController
 from streampilot.control.models import (
     AuditEntry,
     ControlRequest,
@@ -65,6 +66,30 @@ class ControlService:
             recorder=self._recorder,
             clock=self._clock,
         )
+        self._lifecycle = LifecycleController(
+            sessions=self._sessions,
+            takeovers=takeovers,
+            clock=self._clock,
+        )
+
+    def end_stream(self, stream_id: str, *, reason: str) -> None:
+        """收播：结束状态机、清空队列并静默。
+
+        Args:
+            stream_id: 场次标识。
+            reason: 收播原因码与说明。
+        """
+        with self._lock:
+            self._lifecycle.end(stream_id, reason=reason)
+
+    def reset_for_resume(self, stream_id: str) -> None:
+        """恢复开播：为已收播场次重建状态机。
+
+        Args:
+            stream_id: 场次标识。
+        """
+        with self._lock:
+            self._lifecycle.reset(stream_id)
 
     def register(self, control: SessionControl) -> None:
         """登记场次运行时。

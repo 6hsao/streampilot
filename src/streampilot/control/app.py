@@ -1,6 +1,6 @@
 """控制面 HTTP 应用：接管、运行控制、状态与审计。
 
-接口契约见 docs/API.md 第 4.2/4.3 节。控制台页面由同一应用托管，
+接口契约见 docs/API.md 第 4.5/4.6 节。控制台页面由同一应用托管，
 方便单进程联调；页面只调用本应用暴露的 REST 接口。
 """
 
@@ -38,13 +38,13 @@ def console_html() -> str:
     return resource.read_text(encoding="utf-8")
 
 
-def _trace_id(request: Request) -> str:
+def trace_id_from_request(request: Request) -> str:
     """读取或生成追踪 ID。"""
     incoming = request.headers.get("x-trace-id", "").strip()
     return incoming or uuid.uuid4().hex
 
 
-def _operator(request: Request) -> str:
+def operator_from_request(request: Request) -> str:
     """读取操作人标识。
 
     Args:
@@ -83,9 +83,9 @@ def create_app(
     async def _handle_api_error(
         request: Request, exc: ApiError
     ) -> JSONResponse:
-        trace_id = getattr(request.state, "trace_id", None) or _trace_id(
-            request
-        )
+        trace_id = getattr(
+            request.state, "trace_id", None
+        ) or trace_id_from_request(request)
         return JSONResponse(
             status_code=exc.http_status,
             content=error_body(
@@ -106,7 +106,7 @@ def create_app(
             content=error_body(
                 ErrorCode.INVALID_ARGUMENT,
                 "invalid request payload",
-                _trace_id(request),
+                trace_id_from_request(request),
             ),
         )
 
@@ -139,11 +139,11 @@ def create_app(
         Returns:
             接管结果。
         """
-        request.state.trace_id = _trace_id(request)
+        request.state.trace_id = trace_id_from_request(request)
         return service.takeover(
             stream_id,
             action=payload.action,
-            operator_id=_operator(request),
+            operator_id=operator_from_request(request),
             reason=payload.reason,
         )
 
@@ -161,11 +161,11 @@ def create_app(
         Returns:
             控制结果。
         """
-        request.state.trace_id = _trace_id(request)
+        request.state.trace_id = trace_id_from_request(request)
         return service.control(
             stream_id,
             request=payload,
-            operator_id=_operator(request),
+            operator_id=operator_from_request(request),
         )
 
     @app.get("/v1/streams/{stream_id}/state")
@@ -179,8 +179,8 @@ def create_app(
         Returns:
             控制面快照。
         """
-        request.state.trace_id = _trace_id(request)
-        _operator(request)
+        request.state.trace_id = trace_id_from_request(request)
+        operator_from_request(request)
         return service.snapshot(stream_id)
 
     @app.get("/v1/streams/{stream_id}/audit")
@@ -197,8 +197,8 @@ def create_app(
         Returns:
             时间倒序的审计记录。
         """
-        request.state.trace_id = _trace_id(request)
-        _operator(request)
+        request.state.trace_id = trace_id_from_request(request)
+        operator_from_request(request)
         return AuditPage(entries=service.audit(stream_id, limit))
 
     return app
