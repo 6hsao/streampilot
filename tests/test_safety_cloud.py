@@ -56,16 +56,52 @@ def test_parse_verdict_blocks_risk_labels() -> None:
     assert verdict.latency_ms == 42
 
 
+def test_parse_verdict_accepts_enhanced_lowercase_labels() -> None:
+    """增强版实际返回小写 labels 时同样拦截。"""
+    verdict = parse_verdict(
+        {
+            "RequestId": "req-1",
+            "Message": "OK",
+            "Code": 200,
+            "Data": {
+                "labels": "contraband,ad",
+                "descriptions": "疑似违禁内容,疑似广告内容",
+            },
+        },
+        provider="aliyun_green",
+        latency_ms=139,
+    )
+
+    assert verdict.status == "block"
+    assert verdict.labels == ("contraband", "ad")
+
+
 def test_parse_verdict_passes_clean_text() -> None:
-    """仅 nonLabel 时放行。"""
+    """仅 nonLabel 或空 labels 时放行。"""
     verdict = parse_verdict(
         {"Data": {"Result": [{"Label": "nonLabel", "Confidence": 99}]}},
+        provider="aliyun_green",
+        latency_ms=5,
+    )
+    empty = parse_verdict(
+        {"Code": 200, "Data": {"labels": ""}},
         provider="aliyun_green",
         latency_ms=5,
     )
 
     assert verdict.status == "pass"
     assert verdict.labels == ()
+    assert empty.status == "pass"
+
+
+def test_parse_verdict_rejects_business_error_code() -> None:
+    """业务码非 200 按不可用处理。"""
+    with pytest.raises(ModerationUnavailableError, match="code 400"):
+        parse_verdict(
+            {"Code": 400, "Data": {"labels": ""}},
+            provider="aliyun_green",
+            latency_ms=1,
+        )
 
 
 def test_parse_verdict_rejects_unknown_shape() -> None:

@@ -1,7 +1,7 @@
 """阿里云内容安全适配器（ACS3-HMAC-SHA256 签名）。
 
-签名与请求体构造按阿里云 OpenAPI 规范实现，未在真实凭据下联调前
-只能保证协议结构正确；上线前必须用 staging 凭据做一次真实调用核验。
+签名与请求体构造按阿里云 OpenAPI 规范实现，并已用 staging 凭据对
+内容审核增强版（2022-03-02）``TextModeration`` 做过真实调用核验。
 """
 
 import hashlib
@@ -175,6 +175,9 @@ def parse_verdict(
 ) -> CloudVerdict:
     """把阿里云响应解析为统一结论。
 
+    增强版（2022-03-02）实际返回 ``Data.labels``（小写、逗号分隔），
+    兼容旧版的 ``Data.Labels`` 与 ``Data.Result[].Label`` 形状。
+
     Args:
         payload: 响应 JSON。
         provider: 供应商名称。
@@ -184,21 +187,32 @@ def parse_verdict(
         审核结论。
 
     Raises:
-        ModerationUnavailableError: 响应结构不符合预期。
+        ModerationUnavailableError: 业务码非 200 或响应结构不符合预期。
     """
+    code = payload.get("Code")
+    if code is not None and str(code) != "200":
+        raise ModerationUnavailableError(f"moderation returned code {code}")
     data = payload.get("Data")
     if not isinstance(data, dict):
         raise ModerationUnavailableError("unexpected moderation response")
     labels: list[str] = []
-    raw_labels = data.get("Labels")
+    raw_labels = data.get("labels", data.get("Labels"))
     if isinstance(raw_labels, str):
         labels.extend(
             item.strip() for item in raw_labels.split(",") if item.strip()
         )
-    for item in cast(list[dict[str, Any]], data.get("Result") or []):
-        label = item.get("Label")
-        if isinstance(label, str) and label.strip():
-            labels.append(label.strip())
+    elif isinstance(raw_labels, list):
+        labels.extend(
+            str(item).strip() for item in raw_labels if str(item).strip()
+        )
+    raw_results = data.get("Result")
+    if isinstance(raw_results, list):
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            label = item.get("Label")
+            if isinstance(label, str) and label.strip():
+                labels.append(label.strip())
     risk = tuple(
         label for label in dict.fromkeys(labels) if label != _PASS_LABEL
     )
