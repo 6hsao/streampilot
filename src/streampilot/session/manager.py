@@ -312,6 +312,20 @@ class SessionManager:
         )
         return self._view(stream_id, session)
 
+    def view(self, stream_id: str) -> SessionView:
+        """查询场次视图。
+
+        Args:
+            stream_id: 场次标识。
+
+        Returns:
+            含配置快照的场次视图。
+
+        Raises:
+            ApiError: 场次不存在。
+        """
+        return self._view(stream_id, self._require(stream_id))
+
     def _view(self, stream_id: str, session: StreamSession) -> SessionView:
         """构造场次视图，状态取控制面实时值。"""
         snapshot = self._control.snapshot(stream_id)

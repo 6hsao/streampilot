@@ -113,6 +113,7 @@ signature = hex(hmac_sha256(secret, canonical))
 | POST | `/v1/streams/{id}/control` | 运行控制 |
 | POST | `/v1/streams/{id}/takeover` | 人工接管/释放 |
 | GET | `/v1/streams/{id}/audit` | 操作审计 |
+| POST | `/v1/streams/{id}/comments` | 评论注入（联调/触发发言） |
 
 > 控制面请求需携带 `X-Operator-Id` 作为操作人标识（OIDC 接入前替代 JWT 主体），缺失返回 `401 UNAUTHENTICATED`。场次的创建、开播、收播、恢复均写入审计（`session.create` / `session.start` / `session.stop` / `session.resume`，被拒绝时以 `.rejected` 结尾）。
 
@@ -313,6 +314,20 @@ signature = hex(hmac_sha256(secret, canonical))
 ### 4.9 控制台页面
 
 控制面服务在 `/console` 托管零构建控制台页面，只调用本节接口。PLAN 中的 React SPA 落地后复用同一 REST 契约，无需改动服务端。
+
+### 4.10 `POST /v1/streams/{id}/comments`
+
+本地联调、压测与人工触发发言的评论注入入口；真实评论由评论接入服务验签后转发。仅直播中场次受理，评论先过输入审核再入发言队列，接管、暂停、静音或熔断时直接拒收。
+
+```json
+{"text": "这个怎么用？", "item_id": "c_01J...", "priority": "normal | high | urgent"}
+```
+
+```json
+{"accepted": true, "outcome": "accepted | duplicate | rejected_full | blocked | silent"}
+```
+
+> 重复的 `item_id` 返回 `duplicate`；队列满时淘汰最低优先级的旧评论，若被淘汰的是本条则返回 `rejected_full`。该入口只负责入队，实际发声由运行时后台循环完成：LLM 流式生成 → 输出审核 → CosyVoice 流式合成 → 播放；合成不可用时降级字幕。
 
 ## 5. 安全、生成与语音（内部）
 

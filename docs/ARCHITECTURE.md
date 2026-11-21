@@ -42,6 +42,8 @@ Orchestrator → LLM GW(stream) → 句级 chunk
   → Renderer(audio chunk + timestamps) → Streamer → 平台
 ```
 
+实现：`src/streampilot/orchestrator/runtime.py` 的 `DialogueRuntime` 每场次一个，评论经输入审核后入队；后台线程统一经 `ControlService.dequeue()` 取话，LLM 流式输出由 `OutputGuard` 句级审核后逐句合成与播放。TTS 失败降级字幕，LLM 最终失败播放预设话术；接管、暂停、静音或熔断时取话返回空并中止在途生成。装配与降级链见 `orchestrator/bootstrap.py`。
+
 ### 3.2 人工接管路径
 
 ```

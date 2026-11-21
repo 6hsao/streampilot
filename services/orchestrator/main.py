@@ -1,7 +1,7 @@
-"""编排服务：场次管理 + 人工接管控制面。
+"""编排服务：场次管理 + 人工接管控制面 + LLM/TTS 对话运行时。
 
-运行时事件循环由后续任务接入；本地联调可设置
-CONTROL_DEMO_STREAM_ID 自动登记一个内存场次。
+评论通过 ``POST /v1/streams/{id}/comments`` 注入；本地联调可设置
+CONTROL_DEMO_STREAM_ID 自动登记一个内存控制面场次。
 """
 
 import os
@@ -16,6 +16,11 @@ from streampilot.control.sink import LoggingControlSink
 from streampilot.control.store import (
     InMemoryAuditStore,
     InMemoryTakeoverStore,
+)
+from streampilot.orchestrator.api import create_runtime_router
+from streampilot.orchestrator.bootstrap import (
+    RuntimeSettings,
+    build_runtime_factory,
 )
 from streampilot.orchestrator.queue import InMemorySpeechQueue
 from streampilot.orchestrator.state import SessionStateMachine
@@ -45,15 +50,24 @@ def build_app() -> FastAPI:
         takeovers=InMemoryTakeoverStore(),
         org_id=org_id,
     )
+    settings = RuntimeSettings.from_env()
+    factory, runtimes = build_runtime_factory(
+        control=service,
+        settings=settings,
+        templates=DEMO_TEMPLATES,
+    )
     manager = SessionManager(
         control=service,
         audit=audit,
         org_id=org_id,
         templates=DEMO_TEMPLATES,
         facts=load_fact_source(),
+        runtime_factory=factory,
     )
     app = create_app(service)
     app.include_router(create_session_router(manager))
+    app.include_router(create_runtime_router(manager, runtimes))
+    app.router.add_event_handler("shutdown", runtimes.close_all)
     demo_stream = os.environ.get("CONTROL_DEMO_STREAM_ID", "").strip()
     if demo_stream:
         service.register(
