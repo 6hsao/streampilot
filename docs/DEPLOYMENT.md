@@ -355,6 +355,7 @@ $env:DASHSCOPE_API_KEY = 'dashscope-api-key-here'
 
 **配置约束**
 
+- 编排服务启动时自动加载工作目录下的 `.env`（不覆盖已存在的进程环境变量）；
 - `.env` 保持 `APP_ENV=staging`，`RTMP_URL`、`RTMP_STREAM_KEY` 留空；
 - `PUSH_PERMIT_*` 全部留空，**不要填占位或虚假编号**；
 - 设置 `BROADCAST_MODE=local`、`LOCAL_BROADCAST_READY=true`、`AIGC_LABEL_ENABLED=true`，并在本地词库就绪时设置 `SAFETY_HEALTHY=true`；

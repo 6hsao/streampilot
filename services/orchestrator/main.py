@@ -6,6 +6,7 @@ CONTROL_DEMO_STREAM_ID 自动登记一个内存场次。
 
 import os
 
+from dotenv import load_dotenv
 from fastapi import FastAPI
 
 from streampilot.control.app import create_app
@@ -36,6 +37,7 @@ def build_app() -> FastAPI:
     Returns:
         可直接由 uvicorn 启动的应用。
     """
+    load_dotenv()
     org_id = os.environ.get("CONTROL_ORG_ID", "org_default")
     audit = InMemoryAuditStore()
     service = ControlService(
