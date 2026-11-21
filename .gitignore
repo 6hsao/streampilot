@@ -105,6 +105,7 @@ assets/voices/
 runtime/
 recordings/
 logs/
+local/
 
 # ---------- 构建与运行时产物 ----------
 *.log
