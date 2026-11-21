@@ -399,7 +399,7 @@ def test_runtime_settings_reads_overrides() -> None:
     """环境变量覆盖音频格式、并发与提示词。"""
     settings = RuntimeSettings.from_env(
         {
-            "DASHSCOPE_API_KEY": "sk-test-12345678",
+            "DASHSCOPE_API_KEY": "00000000000000000000",
             "TTS_AUDIO_FORMAT": "pcm_24k_mono",
             "TTS_MAX_CONCURRENCY": "1",
             "ORCHESTRATOR_HISTORY_TURNS": "2",
