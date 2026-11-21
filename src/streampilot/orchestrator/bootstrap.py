@@ -70,6 +70,7 @@ class RuntimeSettings:
         system_prompt: 默认系统提示词。
         lexicon_path: 敏感词规则文件。
         history_turns: 上下文保留轮数。
+        default_voice: 场次音色缺失或为占位符时使用的默认音色。
     """
 
     llm: LLMSettings | None = None
@@ -80,6 +81,7 @@ class RuntimeSettings:
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
     lexicon_path: Path = DEFAULT_LEXICON_PATH
     history_turns: int = 6
+    default_voice: str = ""
 
     @classmethod
     def from_env(
@@ -137,6 +139,7 @@ class RuntimeSettings:
                 or DEFAULT_LEXICON_PATH
             ),
             history_turns=history,
+            default_voice=data.get("COSYVOICE_DEFAULT_VOICE", "").strip(),
         )
 
     @property
@@ -257,6 +260,7 @@ def build_runtime_factory(
             templates=session.templates,
             settings=reply,
             logger=log,
+            default_voice=settings.default_voice,
         )
         registry.add(runtime)
         return session

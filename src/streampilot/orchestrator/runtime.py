@@ -57,6 +57,56 @@ FALLBACK_TEMPLATE_ID = "break"
 WORKER_IDLE_SECONDS = 0.2
 # 单条评论默认优先级
 DEFAULT_PRIORITY = Priority.NORMAL
+# 视为“未配置”的占位音色，命中时直接报错而不是悄悄合成
+PLACEHOLDER_VOICE_IDS: frozenset[str] = frozenset(
+    {"", "replace_with_authorized_voice_id"}
+)
+# 占位音色常见的形状特征，用于拦截未替换的模板值
+PLACEHOLDER_MARKERS: tuple[str, ...] = (
+    "replace_with",
+    "your_voice",
+    "voice_authorized_00",
+)
+
+
+def _is_placeholder_voice(voice: str) -> bool:
+    """判断音色是否为空或未替换的占位值。
+
+    Args:
+        voice: 已去除首尾空白的音色标识。
+
+    Returns:
+        需要视为“未配置”时返回 True。
+    """
+    lowered = voice.lower()
+    return lowered in PLACEHOLDER_VOICE_IDS or any(
+        marker in lowered for marker in PLACEHOLDER_MARKERS
+    )
+
+
+def _require_voice(voice_id: str | None, default: str = "") -> str:
+    """解析生效音色：优先场次配置，占位或缺失时回退到默认音色。
+
+    Args:
+        voice_id: 场次配置里的音色标识。
+        default: 环境变量配置的默认音色。
+
+    Returns:
+        去除首尾空白后的可用音色标识。
+
+    Raises:
+        ValueError: 场次音色与默认音色都不可用，提示去配置真实音色。
+    """
+    for candidate in ((voice_id or "").strip(), default.strip()):
+        if candidate and not _is_placeholder_voice(candidate):
+            return candidate
+    raise ValueError(
+        "音色未配置：请把场次 voice_id 或环境变量 "
+        "COSYVOICE_DEFAULT_VOICE 设为已授权的 CosyVoice 音色"
+        "（例如 longfeifei_v2），"
+        f"当前值 {voice_id or '<空>'!r} / 默认 {default or '<空>'!r} "
+        "均不可用"
+    )
 
 
 class CommentOutcome(StrEnum):
@@ -234,6 +284,10 @@ class DialogueRuntime:
         clock_ms: 毫秒时间源，便于测试注入。
         logger: 日志记录器。
         worker_enabled: 是否允许启动后台消费线程。
+        default_voice: 场次音色缺失或为占位符时使用的默认音色。
+
+    Raises:
+        ValueError: 场次音色与默认音色都不可用。
     """
 
     def __init__(
@@ -252,6 +306,7 @@ class DialogueRuntime:
         clock_ms: Callable[[], int] | None = None,
         logger: logging.Logger | None = None,
         worker_enabled: bool = True,
+        default_voice: str = "",
     ) -> None:
         self._control = control
         self._service = control_service
@@ -273,6 +328,7 @@ class DialogueRuntime:
         self._wakeup = threading.Event()
         self._thread: threading.Thread | None = None
         self._worker_enabled = worker_enabled
+        self._voice_id = _require_voice(config.voice_id, default_voice)
         self.stats = RuntimeStats()
 
     @property
@@ -437,7 +493,7 @@ class DialogueRuntime:
         self._transition(SessionState.SPEAKING, "speak")
         request = SynthesisRequest(
             text=text,
-            voice_id=self._config.voice_id,
+            voice_id=self._voice_id,
             audio_format=self._settings.audio_format,
             speech_rate=self._settings.speech_rate,
         )

@@ -175,13 +175,13 @@ def _audio(seq: int = 0) -> AudioChunk:
     )
 
 
-def _config() -> SessionConfig:
+def _config(voice_id: str = "voice_1") -> SessionConfig:
     """构造测试场次配置。"""
     return SessionConfig(
         persona=PersonaSnapshot(
             persona_id="p_1", version=1, prompt_digest="d_1"
         ),
-        voice_id="voice_1",
+        voice_id=voice_id,
         avatar_id="avatar_1",
     )
 
@@ -193,6 +193,8 @@ def make_harness(
     rules: RuleSet | None = None,
     templates: Mapping[str, str] | None = None,
     worker_enabled: bool = False,
+    config: SessionConfig | None = None,
+    default_voice: str = "",
 ) -> Harness:
     """装配一套可控的运行时。"""
     audit = InMemoryAuditStore()
@@ -210,7 +212,7 @@ def make_harness(
     runtime = DialogueRuntime(
         control=control,
         control_service=service,
-        config=_config(),
+        config=config or _config(),
         gateway=LLMGateway(
             provider or FakeProvider((StreamChunk(delta="你好。"),)),
             chain=("fake",),
@@ -224,6 +226,7 @@ def make_harness(
         clock_ms=lambda: NOW_MS,
         logger=logging.getLogger("test.orchestrator"),
         worker_enabled=worker_enabled,
+        default_voice=default_voice,
     )
     return Harness(
         runtime=runtime,
@@ -413,6 +416,14 @@ def test_runtime_settings_reads_overrides() -> None:
     assert settings.system_prompt == "自定义人设"
 
 
+def test_runtime_settings_reads_default_voice() -> None:
+    """默认音色从环境变量读取，供场次占位音色回退。"""
+    settings = RuntimeSettings.from_env(
+        {"COSYVOICE_DEFAULT_VOICE": "longfeifei_v2"}
+    )
+    assert settings.default_voice == "longfeifei_v2"
+
+
 def test_runtime_settings_rejects_invalid_format() -> None:
     """未知音频格式在启动时直接报错。"""
     with pytest.raises(ValueError, match="TTS_AUDIO_FORMAT"):
@@ -505,3 +516,34 @@ def test_comment_route_requires_live_stream() -> None:
             "outcome": "accepted",
         }
     runtimes.close_all()
+
+
+def test_placeholder_voice_is_rejected() -> None:
+    """场次与默认音色都是占位值时显式报错，避免悄悄降级为字幕。"""
+    with pytest.raises(ValueError, match="音色未配置"):
+        make_harness(
+            config=_config("replace_with_authorized_voice_id"),
+        )
+
+
+def test_placeholder_voice_falls_back_to_default() -> None:
+    """场次音色是占位值时回退到已配置的默认音色。"""
+    synth = FakeSynth((_audio(),))
+    harness = make_harness(
+        config=_config("replace_with_authorized_voice_id"),
+        synth=synth,
+        default_voice="longfeifei_v2",
+    )
+    assert harness.runtime.submit_comment("你好") is CommentOutcome.ACCEPTED
+    harness.runtime.run_once()
+    assert synth.requests
+    assert synth.requests[0].voice_id == "longfeifei_v2"
+
+
+def test_session_voice_wins_over_default() -> None:
+    """场次音色合法时优先使用场次音色，不被默认音色覆盖。"""
+    synth = FakeSynth((_audio(),))
+    harness = make_harness(synth=synth, default_voice="longfeifei_v2")
+    assert harness.runtime.submit_comment("你好") is CommentOutcome.ACCEPTED
+    harness.runtime.run_once()
+    assert synth.requests[0].voice_id == "voice_1"
