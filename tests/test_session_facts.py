@@ -8,6 +8,7 @@ from streampilot.persona import PersonaSnapshot
 from streampilot.session.facts import load_fact_source, probe_rtmp
 from streampilot.session.models import SessionConfig
 from streampilot.session.permit import PermitRegistry, PushPermit
+from streampilot.session.preflight import PreflightMode
 
 NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -98,6 +99,31 @@ def test_load_fact_source_defaults_to_fail_closed() -> None:
     assert facts.safety_healthy is False
     assert facts.rtmp_credential_ready is False
     assert facts.rtmp_reachable is False
+
+
+def test_load_fact_source_local_mode() -> None:
+    """本地模式不需要许可，但要求本地链路就绪。"""
+    source = load_fact_source(
+        {
+            "BROADCAST_MODE": "local",
+            "LOCAL_BROADCAST_READY": "true",
+            "AIGC_LABEL_ENABLED": "true",
+            "SAFETY_HEALTHY": "true",
+        }
+    )
+
+    facts = source.collect("st_1", _config())
+
+    assert facts.mode is PreflightMode.LOCAL
+    assert facts.local_broadcast_ready is True
+    assert facts.push_permit_until is None
+    assert facts.push_permit_number == ""
+
+
+def test_load_fact_source_rejects_unknown_mode() -> None:
+    """未知开播形态直接报错，避免误跑。"""
+    with pytest.raises(ValueError, match="BROADCAST_MODE"):
+        load_fact_source({"BROADCAST_MODE": "satellite"})
 
 
 def test_load_fact_source_reads_permit_and_flags() -> None:

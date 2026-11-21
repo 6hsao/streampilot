@@ -17,8 +17,10 @@ from streampilot.session.models import (
 from streampilot.session.permit import PermitRegistry, PushPermit
 from streampilot.session.preflight import (
     CHECK_ORDER,
+    LOCAL_CHECK_ORDER,
     CheckResult,
     PreflightFacts,
+    PreflightMode,
     PreflightReport,
     run_preflight,
 )
@@ -35,8 +37,10 @@ __all__ = [
     "CheckResult",
     "CreateStreamRequest",
     "FactSource",
+    "LOCAL_CHECK_ORDER",
     "PermitRegistry",
     "PreflightFacts",
+    "PreflightMode",
     "PreflightReport",
     "PushPermit",
     "ResumeStreamRequest",

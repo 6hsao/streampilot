@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 
 from streampilot.session.models import SessionConfig
 from streampilot.session.permit import PermitRegistry, PushPermit
-from streampilot.session.preflight import PreflightFacts
+from streampilot.session.preflight import PreflightFacts, PreflightMode
 
 _TRUE = {"1", "true", "yes", "on"}
 
@@ -69,6 +69,7 @@ class StaticFactSource:
     默认全部不可用（fail-closed），必须显式配置后才允许开播。
 
     Attributes:
+        mode: 开播形态；本地模式跳过云端许可与 RTMP 校验。
         platform_authorized_until: 平台账号授权到期时间。
         avatar_license_until: 形象授权到期时间。
         voice_license_until: 音色授权到期时间。
@@ -79,8 +80,10 @@ class StaticFactSource:
         live2d_model_ready: Live2D 模型与动作集是否可用。
         cubism_license_recorded: Cubism 商用许可判定是否归档。
         permits: 云端推流许可登记表。
+        local_broadcast_ready: 本地 OBS/直播伴侣是否就绪。
     """
 
+    mode: PreflightMode = PreflightMode.CLOUD
     platform_authorized_until: datetime | None = None
     avatar_license_until: datetime | None = None
     voice_license_until: datetime | None = None
@@ -91,6 +94,7 @@ class StaticFactSource:
     live2d_model_ready: bool = False
     cubism_license_recorded: bool = False
     permits: PermitRegistry = field(default_factory=PermitRegistry)
+    local_broadcast_ready: bool = False
 
     def collect(self, stream_id: str, config: SessionConfig) -> PreflightFacts:
         """汇总指定场次的自检事实。
@@ -104,6 +108,7 @@ class StaticFactSource:
         """
         permit = self.permits.find(config.platform_account_id)
         return PreflightFacts(
+            mode=self.mode,
             platform_authorized_until=self.platform_authorized_until,
             avatar_license_until=self.avatar_license_until,
             voice_license_until=self.voice_license_until,
@@ -115,6 +120,7 @@ class StaticFactSource:
             push_permit_number=permit.number if permit else "",
             live2d_model_ready=self.live2d_model_ready,
             cubism_license_recorded=self.cubism_license_recorded,
+            local_broadcast_ready=self.local_broadcast_ready,
         )
 
 
@@ -131,6 +137,17 @@ def _parse_time(raw: str | None) -> datetime | None:
 def _parse_bool(raw: str | None) -> bool:
     """解析布尔环境变量。"""
     return bool(raw and raw.strip().lower() in _TRUE)
+
+
+def _parse_mode(raw: str | None) -> PreflightMode:
+    """解析开播形态，缺省为云端直推。"""
+    value = (raw or "").strip().lower()
+    if not value:
+        return PreflightMode.CLOUD
+    try:
+        return PreflightMode(value)
+    except ValueError as exc:
+        raise ValueError(f"unknown BROADCAST_MODE: {raw!r}") from exc
 
 
 def _env_probe(env: Mapping[str, str], key: str) -> Callable[[], bool]:
@@ -207,6 +224,7 @@ def load_fact_source(env: Mapping[str, str] | None = None) -> StaticFactSource:
     else:
         rtmp_probe = _always_false
     return StaticFactSource(
+        mode=_parse_mode(data.get("BROADCAST_MODE")),
         platform_authorized_until=_parse_time(
             data.get("PLATFORM_AUTH_EXPIRES_AT")
         ),
@@ -223,4 +241,5 @@ def load_fact_source(env: Mapping[str, str] | None = None) -> StaticFactSource:
             data.get("CUBISM_LICENSE_RECORDED")
         ),
         permits=permits,
+        local_broadcast_ready=_parse_bool(data.get("LOCAL_BROADCAST_READY")),
     )

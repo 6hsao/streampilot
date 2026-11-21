@@ -6,6 +6,7 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import StrEnum
 
 # 自检项顺序与 API 契约一致，便于前端按序展示
 CHECK_ORDER = (
@@ -21,12 +22,27 @@ CHECK_ORDER = (
     "cubism_license",
 )
 
+# 本地伴侣推流（架构 B）只校验与云推流无关的项
+LOCAL_CHECK_ORDER = (
+    "aigc_label",
+    "safety_health",
+    "local_broadcast",
+)
+
+
+class PreflightMode(StrEnum):
+    """开播形态。"""
+
+    CLOUD = "cloud"
+    LOCAL = "local"
+
 
 @dataclass(frozen=True)
 class PreflightFacts:
     """自检所需事实，由各子系统查询后汇总。
 
     Attributes:
+        mode: 开播形态；云端直推或本地伴侣推流。
         platform_authorized_until: 平台授权到期时间。
         avatar_license_until: 形象授权到期时间。
         voice_license_until: 音色授权到期时间。
@@ -38,8 +54,10 @@ class PreflightFacts:
         push_permit_number: 云端推流许可/报备编号。
         live2d_model_ready: Live2D 模型与动作集是否可用。
         cubism_license_recorded: Cubism 商用许可判定是否归档。
+        local_broadcast_ready: 本地 OBS/直播伴侣是否就绪。
     """
 
+    mode: PreflightMode = PreflightMode.CLOUD
     platform_authorized_until: datetime | None = None
     avatar_license_until: datetime | None = None
     voice_license_until: datetime | None = None
@@ -51,6 +69,7 @@ class PreflightFacts:
     push_permit_number: str = ""
     live2d_model_ready: bool = False
     cubism_license_recorded: bool = False
+    local_broadcast_ready: bool = False
 
 
 @dataclass(frozen=True)
@@ -128,6 +147,8 @@ def run_preflight(
         按固定顺序排列的自检报告。
     """
     moment = now or datetime.now(UTC)
+    if facts.mode is PreflightMode.LOCAL:
+        return _local_report(facts)
     checks: dict[str, tuple[bool, str]] = {}
 
     checks["platform_auth"] = _licence_ok(
@@ -166,6 +187,35 @@ def run_preflight(
         results=tuple(
             CheckResult(code=code, ok=ok, detail=detail)
             for code in CHECK_ORDER
+            for ok, detail in (checks[code],)
+        )
+    )
+
+
+def _local_report(facts: PreflightFacts) -> PreflightReport:
+    """本地伴侣推流只校验标识、内容安全与本地链路。"""
+    checks = {
+        "aigc_label": (
+            facts.aigc_label_enabled,
+            "" if facts.aigc_label_enabled else "AIGC label is disabled",
+        ),
+        "safety_health": (
+            facts.safety_healthy,
+            "" if facts.safety_healthy else "content safety is unhealthy",
+        ),
+        "local_broadcast": (
+            facts.local_broadcast_ready,
+            (
+                ""
+                if facts.local_broadcast_ready
+                else "local obs/companion is not ready"
+            ),
+        ),
+    }
+    return PreflightReport(
+        results=tuple(
+            CheckResult(code=code, ok=ok, detail=detail)
+            for code in LOCAL_CHECK_ORDER
             for ok, detail in (checks[code],)
         )
     )

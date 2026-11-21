@@ -26,7 +26,7 @@ from streampilot.session.models import (
     StopReason,
 )
 from streampilot.session.permit import PermitRegistry, PushPermit
-from streampilot.session.preflight import PreflightFacts
+from streampilot.session.preflight import PreflightFacts, PreflightMode
 from streampilot.session.views import (
     CreateStreamRequest,
     ResumeStreamRequest,
@@ -287,6 +287,31 @@ def test_start_requires_push_permit() -> None:
 
     assert excinfo.value.code is ErrorCode.PERMISSION_DENIED
     assert "push_permit" in excinfo.value.details["failed_checks"]
+
+
+def test_start_in_local_mode_without_permit() -> None:
+    """本地伴侣模式无需云端许可即可开播。"""
+    source = StaticFactSource(
+        mode=PreflightMode.LOCAL,
+        aigc_label_enabled=True,
+        safety_probe=lambda: True,
+        local_broadcast_ready=True,
+    )
+    harness = Harness(facts=source)
+    stream_id = harness.create().stream_id
+
+    view = harness.manager.start(
+        stream_id,
+        request=StartStreamRequest(),
+        operator="op_1",
+    )
+
+    assert view.status is SessionStatus.LIVE
+    entries = {item.action: item for item in harness.audit.entries(stream_id)}
+    after = entries["session.start"].after
+    assert after is not None
+    assert after["mode"] == "local"
+    assert after["permit_number"] == ""
 
 
 def test_resume_rechecks_preflight() -> None:

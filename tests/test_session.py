@@ -8,6 +8,7 @@ from streampilot.persona import PersonaSnapshot
 from streampilot.session import (
     CHECK_ORDER,
     PreflightFacts,
+    PreflightMode,
     SessionConfig,
     SessionStateError,
     SessionStatus,
@@ -88,6 +89,38 @@ def test_preflight_requires_push_permit_number() -> None:
     codes = {item.code for item in report.failures}
 
     assert codes == {"push_permit"}
+
+
+def test_local_mode_skips_cloud_checks() -> None:
+    """本地伴侣模式只校验标识、内容安全与本地链路。"""
+    facts = PreflightFacts(
+        mode=PreflightMode.LOCAL,
+        aigc_label_enabled=True,
+        safety_healthy=True,
+        local_broadcast_ready=True,
+    )
+
+    report = run_preflight(facts, now=NOW)
+
+    assert report.ok
+    assert [item.code for item in report.results] == [
+        "aigc_label",
+        "safety_health",
+        "local_broadcast",
+    ]
+
+
+def test_local_mode_requires_broadcast_ready() -> None:
+    """本地 OBS/直播伴侣未就绪时禁止开播。"""
+    facts = PreflightFacts(
+        mode=PreflightMode.LOCAL,
+        aigc_label_enabled=True,
+        safety_healthy=True,
+    )
+
+    report = run_preflight(facts, now=NOW)
+
+    assert [item.code for item in report.failures] == ["local_broadcast"]
 
 
 def test_preflight_treats_naive_datetime_as_utc() -> None:

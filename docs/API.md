@@ -196,6 +196,8 @@ signature = hex(hmac_sha256(secret, canonical))
 }
 ```
 
+> 本地伴侣推流（架构 B）设置 `BROADCAST_MODE=local` 后，只校验 `aigc_label`、`safety_health`、`local_broadcast` 三项；`local_broadcast` 对应 `LOCAL_BROADCAST_READY`，用于确认 OBS 虚拟摄像头与直播伴侣已就绪。审计记录会带上 `mode`，便于区分本地联调与云端直推。
+
 ### 4.3 `POST /v1/streams/{id}/stop`
 
 ```json

@@ -188,6 +188,7 @@ class SessionManager:
             before,
             {
                 "status": session.status.value,
+                "mode": facts.mode.value,
                 "permit_number": facts.push_permit_number,
                 "expected_start_at": (
                     request.expected_start_at.isoformat()
@@ -304,6 +305,7 @@ class SessionManager:
             before,
             {
                 "status": session.status.value,
+                "mode": facts.mode.value,
                 "reason": request.reason,
                 "permit_number": facts.push_permit_number,
             },
@@ -404,6 +406,7 @@ class SessionManager:
             f"preflight failed: {codes}",
             details={
                 "failed_checks": failures,
+                "mode": facts.mode.value,
                 "permit_number": facts.push_permit_number,
             },
         )
